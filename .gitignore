@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+.wrangler/
+.dryrun/
+.dev*.log
+.dev.vars
+worker-configuration.d.ts
+.tmp-state/
+.workbuddy/

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>personal agent</title>
+<style>
+  body { font: 15px/1.65 system-ui, -apple-system, sans-serif; max-width: 640px; margin: 48px auto; padding: 0 16px; color: #111; }
+  h1 { font-size: 15px; font-weight: 500; margin: 0 0 6px; }
+  .hint { color: #666; font-size: 13px; margin: 0 0 20px; }
+  textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
+  button { font: inherit; font-size: 14px; padding: 6px 16px; margin-top: 8px; border: 1px solid #999; background: #fff; border-radius: 6px; cursor: pointer; }
+  button:disabled { color: #aaa; border-color: #ddd; cursor: default; }
+  #ops { margin-top: 32px; }
+  .op { padding: 14px 0; border-top: 1px solid #e5e5e5; }
+  .meta { font: 12px ui-monospace, SFMono-Regular, monospace; color: #999; }
+  .state { font-size: 13px; margin-top: 2px; }
+  .text { white-space: pre-wrap; margin-top: 8px; }
+  .text:empty { display: none; }
+</style>
+</head>
+<body>
+<h1>personal agent</h1>
+<p class="hint">发完可以直接关掉这个页面。它做完了，答案留在这儿，下次打开还在。</p>
+
+<textarea id="in" rows="3" placeholder="说一句话"></textarea>
+<button id="send">发送</button>
+
+<div id="ops"></div>
+
+<script>
+  const STORE = "agent.ops";
+  const list = () => { try { return JSON.parse(localStorage.getItem(STORE) || "[]"); } catch { return []; } };
+  const keep = (id) => localStorage.setItem(STORE, JSON.stringify([id, ...list().filter((x) => x !== id)].slice(0, 20)));
+
+  const $ = (sel) => document.querySelector(sel);
+
+  function card(id) {
+    let el = document.querySelector('[data-id="' + id + '"]');
+    if (el) return el;
+    el = document.createElement("div");
+    el.className = "op";
+    el.dataset.id = id;
+    el.innerHTML = '<div class="meta"></div><div class="state"></div><div class="text"></div>';
+    $("#ops").prepend(el);
+    return el;
+  }
+
+  function show(id, state, text) {
+    const el = card(id);
+    el.querySelector(".meta").textContent = id;
+    el.querySelector(".state").textContent = state;
+    el.querySelector(".text").textContent = text || "";
+  }
+
+  async function poll(id) {
+    let body;
+    try {
+      const res = await fetch("/op?id=" + encodeURIComponent(id));
+      if (res.status === 404) return show(id, "服务端不认识这张回执（库可能被清过）");
+      body = await res.json();
+    } catch {
+      return show(id, "连不上，稍后重试");
+    }
+
+    if (body.error) return show(id, body.error);
+    if (body.live) {
+      show(id, "运行中（" + body.status + "）");
+      return setTimeout(() => poll(id), 1500);
+    }
+    if (body.status === "done") return show(id, "已完成", body.text);
+    if (body.status === "unanswered") return show(id, "没答上来：" + (body.reason || "未知原因"));
+    show(id, "状态：" + (body.status || "未知"));
+  }
+
+  async function send() {
+    const text = $("#in").value.trim();
+    if (!text) return;
+
+    const operationId = crypto.randomUUID();
+    keep(operationId);
+    show(operationId, "已受理，模型还没开始跑");
+    $("#in").value = "";
+
+    const res = await fetch("/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, operationId }),
+    }).catch(() => null);
+
+    if (!res) return show(operationId, "网络失败，这张回执还留着，刷新会继续查");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return show(operationId, err.hint || err.error || "提交失败 " + res.status);
+    }
+    poll(operationId);
+  }
+
+  $("#send").addEventListener("click", send);
+  $("#in").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+  });
+
+  // 页面重开时，把还没结果的回执接着问一遍 —— 这就是「关掉也不丢」在界面上那一半。
+  list().forEach(poll);
+</script>
+</body>
+</html>

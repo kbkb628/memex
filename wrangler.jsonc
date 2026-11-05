@@ -1,0 +1,22 @@
+{
+  "name": "personal-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // 静态 UI。assets 先于 Worker 命中，所以 / 直接出 index.html，
+  // /ask、/memory 这些没有对应文件的路径再落到 Worker。
+  "assets": { "directory": "./public" },
+  "limits": { "cpu_ms": 300000 },
+  // Workers AI binding 默认关闭。
+  // 开着它，`wrangler dev` 会被强制切到 remote 模式，而 remote 模式要求该账号
+  // 先注册 workers.dev 子域名，否则报 "Failed to start the remote proxy session"。
+  // 想用 Workers AI 再取消注释，并先去 dash.cloudflare.com 注册子域名。
+  // "ai": { "binding": "AI" },
+  "durable_objects": {
+    "bindings": [{ "name": "HOME", "class_name": "Home" }]
+  },
+  "exports": {
+    "Home": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 先读架构决策记录
+    url: https://github.com/OWNER/REPO/tree/main/docs/decisions
+    about: 三个关键取舍都写在里面，包括放弃了什么、什么情况下应该反悔。

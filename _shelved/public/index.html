@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<title>memex</title>
+<style>
+:root{
+  --bg:#FAFAF9; --panel:#FFFFFF; --line:#E8E6E1; --line-soft:#F3F1EC;
+  --text:#1B1B19; --text-2:#575651; --text-3:#8A8880; --text-4:#B4B2AC;
+  --amber:#A97C1F; --amber-line:#C9A227; --amber-bg:#FDFAF3;
+  --amber-soft:#FBF3E0; --amber-border:#E8D5A8;
+  --green:#3E6B52; --green-line:#6E9B80;
+  --red:#A33B3B; --red-bg:#FDF7F7; --red-border:#EFD9D9;
+  --sans:ui-sans-serif,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Songti SC","Source Han Serif SC","Noto Serif SC","STSong",serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);overflow:hidden;
+  font:13px/1.6 var(--sans);
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  display:flex;flex-direction:column;
+}
+button{font-family:inherit}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#DEDCD6;border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#C9C6BE;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+header{
+  height:48px;flex:none;display:flex;align-items:center;gap:11px;
+  padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel);
+}
+.brand{display:flex;align-items:center;gap:8px}
+.mark{width:12px;height:12px;border-radius:3px;background:var(--text)}
+.name{font-family:var(--serif);font-size:15px;font-weight:400;letter-spacing:.01em}
+.pill{
+  font-size:11px;color:var(--text-3);border:1px solid var(--line);border-radius:999px;
+  padding:2px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;
+}
+.pill.ok{color:var(--green);background:#F5F9F6;border-color:#D9E6DE}
+.pill.bad{color:var(--red);background:var(--red-bg);border-color:var(--red-border)}
+.spacer{flex:1}
+.review-btn{
+  display:flex;align-items:center;gap:6px;font-size:11px;color:var(--amber);
+  background:var(--amber-soft);border:1px solid var(--amber-border);border-radius:999px;
+  padding:3px 11px;cursor:pointer;font-variant-numeric:tabular-nums;
+}
+.review-btn:hover{background:#F8EFD9}
+.review-btn i{width:5px;height:5px;border-radius:50%;background:var(--amber-line)}
+.review-btn em{font-style:normal}
+.review-btn[hidden]{display:none}
+.icon-btn{
+  display:none;align-items:center;justify-content:center;width:28px;height:28px;
+  border:1px solid var(--line);border-radius:7px;background:var(--panel);cursor:pointer;color:var(--text-2);
+}
+
+main{flex:1;display:flex;min-height:0;position:relative}
+aside{
+  width:320px;flex:none;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;z-index:21;
+}
+.side-head{padding:14px 14px 12px;border-bottom:1px solid var(--line-soft);display:flex;flex-direction:column;gap:9px}
+.search{display:flex;align-items:center;gap:8px;background:#F7F6F3;border:1px solid transparent;border-radius:7px;padding:7px 10px}
+.search:focus-within{background:var(--panel);border-color:#DDDAD3}
+.search svg{color:var(--text-4);flex:none}
+.search input{border:none;background:none;outline:none;font:inherit;font-size:12px;width:100%;color:var(--text);padding:0}
+.search input::placeholder{color:var(--text-4)}
+.search-add{
+  width:20px;height:20px;flex:none;border:none;background:none;color:var(--text-4);
+  cursor:pointer;font-size:16px;line-height:1;border-radius:4px;display:flex;align-items:center;justify-content:center;
+}
+.search-add:hover{background:#EDEBE6;color:var(--text-2)}
+.new-row{display:flex;gap:6px}
+.new-row[hidden]{display:none}
+.new-row input{flex:1;min-width:0;font:inherit;font-size:12px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;outline:none;background:var(--panel);color:var(--text)}
+.new-row input:focus{border-color:#C9C6BE}
+.new-row button{font-size:11.5px;padding:0 12px;border-radius:7px;border:1px solid var(--line);background:#F7F6F3;color:var(--text-2);cursor:pointer}
+.new-row button:hover{background:#EFEDE8;color:var(--text)}
+
+#groups{flex:1;overflow-y:auto;padding:2px 0 28px}
+.group-title{
+  display:flex;align-items:center;gap:7px;
+  padding:16px 18px 7px;font-size:10.5px;letter-spacing:.11em;color:var(--text-4);
+  cursor:pointer;user-select:none;
+}
+.group-title:hover{color:var(--text-3)}
+.group-title .n{margin-left:auto;color:var(--text-4);letter-spacing:0;font-variant-numeric:tabular-nums}
+.caret{width:0;height:0;border-left:4px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform .14s;opacity:.55}
+.caret.down{transform:rotate(90deg)}
+
+.entry{position:relative;transition:background-color .5s ease}
+.entry::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;pointer-events:none}
+.entry[data-s="pending"]::before{background:repeating-linear-gradient(180deg,var(--amber-line) 0 5px,transparent 5px 10px)}
+.entry[data-s="claimed"]::before{background:var(--amber-line)}
+.entry[data-s="confirmed"]::before{background:var(--green-line)}
+.entry[data-s="rejected"]::before{background:#D6D4CE}
+.entry[data-s="claimed"]{background:var(--amber-bg)}
+.entry.flash{background:#FBF3E0;transition:none}
+.entry.fresh::before{transform-origin:top;animation:grow .5s cubic-bezier(.2,.7,.3,1)}
+@keyframes grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.item{position:relative;padding:12px 16px 12px 16px;cursor:pointer;border-bottom:1px solid var(--line-soft)}
+.item:hover{background:#FCFCFB}
+.entry[data-s="claimed"] .item:hover{background:#FAF5E9}
+.item .t{font-size:13px;line-height:1.6;color:var(--text)}
+.item .m{font-size:11px;color:var(--text-3);margin-top:4px}
+.item .m span[class^="s-"]{font-weight:500}
+.s-pending{color:#B08B32}
+.s-claimed{color:var(--amber)}
+.s-confirmed{color:var(--green)}
+.s-rejected{color:var(--text-4)}
+.entry[data-s="rejected"] .t{color:var(--text-4);text-decoration:line-through}
+
+/* 印章：本人核过的痕迹。框架是系统的，只有这枚笔迹是人按下去的。 */
+.entry[data-s="confirmed"] .item{padding-right:62px}
+.stamp{
+  position:absolute;right:13px;top:50%;width:46px;height:32px;
+  pointer-events:none;opacity:.86;
+  transform:translateY(-50%) rotate(var(--tilt,-7deg));
+}
+.stamp text{
+  font-family:var(--serif);font-size:14px;font-weight:500;
+  letter-spacing:.5px;fill:#B23A32;
+}
+.entry.fresh .stamp{animation:press .54s cubic-bezier(.2,.9,.25,1.06) both}
+.entry.fresh[data-s="confirmed"]::before{animation:none}
+@keyframes press{
+  0%{opacity:0;transform:translateY(-50%) rotate(var(--tilt,-7deg)) scale(1.4)}
+  58%{opacity:.96;transform:translateY(-50%) rotate(var(--tilt,-7deg)) scale(.98)}
+  100%{opacity:.8;transform:translateY(-50%) rotate(var(--tilt,-7deg)) scale(1)}
+}
+@media (prefers-reduced-motion:reduce){
+  .entry.fresh .stamp{animation:none}
+  .entry.fresh::before{animation:none}
+}
+
+.detail{padding:2px 16px 15px 16px;font-size:11.5px;color:var(--text-2);border-bottom:1px solid var(--line-soft)}
+.quote{border-left:3px solid #E3D6B4;background:#FFFFFF;border-radius:0 6px 6px 0;padding:9px 12px;margin:4px 0 12px}
+.quote b{display:block;font-family:var(--sans);font-size:10.5px;font-weight:500;color:#A08A55;letter-spacing:.05em;margin-bottom:4px}
+.quote div{font-family:var(--serif);font-size:13px;line-height:1.75;color:#5E5136;white-space:pre-wrap}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:11px;line-height:1.7}
+.kv .k{color:var(--text-4)}
+.kv .v{color:var(--text-2);word-break:break-word}
+
+.acts{display:flex;gap:6px;margin-top:12px}
+.acts button{flex:1;height:30px;font-size:11.5px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--text-2);cursor:pointer}
+.acts button:disabled{opacity:.5;cursor:default}
+.acts .yes:hover:not(:disabled){border-color:#B9D3C4;color:var(--green);background:#F5F9F6}
+.acts .no:hover:not(:disabled){border-color:#DCDAD4;color:var(--text);background:#FAFAF9}
+.reject-box{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.reject-box input{font:inherit;font-size:11.5px;padding:7px 10px;border:1px solid var(--line);border-radius:6px;outline:none;color:var(--text);background:var(--panel)}
+.reject-box input:focus{border-color:#C9C6BE}
+.reject-row{display:flex;gap:6px}
+.reject-row button{flex:1;height:28px;font-size:11.5px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--text-2);cursor:pointer}
+.reject-row .go{color:#8A5B5B;border-color:#E8D5D5;background:#FDF8F8}
+.reject-row .go:hover{background:#FAF1F1}
+
+/* 空状态不是“没有内容”，是三个还没填的位置。填一个就盖一枚章——
+   整个主张的五分钟版本，不需要模型参与。 */
+.slots{padding:18px 16px 0;display:flex;flex-direction:column;gap:8px}
+.slot{
+  display:flex;flex-direction:column;gap:3px;padding:10px 12px;
+  border:1px dashed #E2DFD8;border-radius:7px;background:#FCFCFB;
+  cursor:text;transition:border-color .15s,background .15s;
+}
+.slot:hover{border-color:#D2CEC4;background:#FDFDFC}
+.slot:focus-visible{outline:none;border-color:#C0BCB2;background:#fff}
+.slot .q{font-size:11.5px;color:var(--text-3);line-height:1.5}
+.slot .ph{font-size:11px;color:var(--text-4);line-height:1.5}
+.slot.editing{border-style:solid;border-color:#C9C6BE;background:#fff;cursor:default}
+.slot input{
+  font:inherit;font-size:12px;border:none;outline:none;background:none;
+  color:var(--text);padding:1px 0;width:100%;
+}
+.slot input::placeholder{color:var(--text-4)}
+.slots-hint{margin:16px 0 0;text-align:center;font-size:11.5px;color:var(--text-4);line-height:1.85;white-space:pre-line}
+.side-empty{padding:30px 22px;text-align:center;color:var(--text-4);font-size:11.5px;line-height:1.9}
+
+.chat{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+#log{flex:1;overflow-y:auto;padding:30px 34px 10px;display:flex;flex-direction:column;gap:18px}
+.msg{max-width:72%;font-size:13.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word}
+.msg.user{align-self:flex-end;background:var(--panel);border:1px solid var(--line);border-radius:12px 12px 3px 12px;padding:10px 14px}
+.msg.agent{align-self:flex-start;color:#2C2C29}
+.msg.agent .who{font-size:10.5px;color:var(--text-4);letter-spacing:.09em;margin-bottom:5px}
+.msg.err{align-self:flex-start;color:var(--red);font-size:12px}
+
+.welcome{max-width:500px;margin:11vh auto 0;color:var(--text-2)}
+.welcome h3{
+  font-family:var(--serif);font-size:23px;font-weight:400;line-height:1.4;
+  margin:0 0 14px;color:var(--text);letter-spacing:.005em;
+}
+.welcome p{margin:0 0 11px;font-size:13.5px;line-height:1.95}
+.welcome p:last-child{margin-bottom:0;color:var(--text-3);font-size:12.5px}
+
+.evt{
+  align-self:flex-start;display:flex;align-items:center;gap:9px;max-width:72%;min-width:0;
+  padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:7px;
+  cursor:pointer;font-size:11.5px;
+}
+.evt:hover{border-color:#DAD7D0}
+.evt .dot{width:5px;height:5px;border-radius:50%;background:var(--amber-line);flex:none}
+.evt .k{color:var(--text-3);flex:none}
+.evt .v{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.evt .s{margin-left:auto;color:var(--amber);flex:none}
+
+.composer{flex:none;padding:0 34px 22px}
+.box{display:flex;align-items:flex-end;gap:10px;border:1px solid #DFDCD5;border-radius:10px;background:var(--panel);padding:9px 9px 9px 15px}
+.box:focus-within{border-color:#C6C3BB}
+#input{flex:1;border:none;outline:none;resize:none;background:none;font:inherit;font-size:13.5px;line-height:1.65;max-height:170px;padding:3px 0;color:var(--text)}
+#input::placeholder{color:var(--text-4)}
+#send{height:30px;padding:0 16px;font-size:12px;border-radius:7px;border:none;background:var(--text);color:#fff;cursor:pointer;flex:none}
+#send:disabled{opacity:.26;cursor:default}
+
+.notice{
+  flex:none;margin:14px 34px 0;padding:10px 13px;display:flex;align-items:flex-start;gap:10px;
+  background:var(--red-bg);border:1px solid var(--red-border);border-radius:8px;
+  font-size:12px;color:#8A4545;line-height:1.65;
+}
+.notice span{flex:1;min-width:0}
+.notice-x{border:none;background:none;color:#B98A8A;font-size:16px;line-height:1;cursor:pointer;padding:0 2px;flex:none}
+.notice-x:hover{color:#8A4545}
+
+.toast{
+  position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);
+  background:#24241F;color:#F5F4F0;font-size:12px;padding:9px 15px;border-radius:8px;
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:60;max-width:80vw;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.overlay{display:none}
+@media (max-width:940px){
+  aside{position:fixed;left:0;top:48px;bottom:0;width:86%;max-width:340px;transform:translateX(-100%);transition:transform .22s ease}
+  aside.open{transform:none}
+  .overlay{display:block;position:fixed;inset:48px 0 0;background:rgba(28,28,24,.26);opacity:0;pointer-events:none;transition:opacity .22s;z-index:20}
+  .overlay.show{opacity:1;pointer-events:auto}
+  .icon-btn{display:flex}
+  #log{padding:22px 20px 10px}
+  .composer{padding:0 20px 18px}
+  .notice{margin:12px 20px 0}
+  .msg,.evt{max-width:88%}
+  .welcome{margin-top:6vh}
+  .welcome h3{font-size:20px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="mark"></span><span class="name">memex</span></div>
+  <span class="pill" id="model">连接中</span>
+  <div class="spacer"></div>
+  <button class="review-btn" id="reviewBtn" hidden><i></i><em></em></button>
+  <button class="icon-btn" id="menuBtn" aria-label="打开记忆档案">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </button>
+</header>
+
+<main>
+  <aside id="sidebar">
+    <div class="side-head">
+      <div class="search">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input id="q" placeholder="搜索记忆" autocomplete="off" />
+        <button class="search-add" id="newBtn" title="手写一条">+</button>
+      </div>
+      <div class="new-row" id="newRow" hidden>
+        <input id="newText" placeholder="写一条你确认过的事…" autocomplete="off" />
+        <button id="newSave">记下</button>
+      </div>
+    </div>
+    <div id="groups"></div>
+  </aside>
+
+  <div class="overlay" id="overlay"></div>
+
+  <section class="chat" id="chat">
+    <div id="log"></div>
+    <div class="composer">
+      <div class="box">
+        <textarea id="input" rows="1" placeholder="说点什么。我现在知道的一切，都来自你打的字。"></textarea>
+        <button id="send" disabled>发送</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, r) => (r || document).querySelector(s);
+const log = $('#log'), input = $('#input'), sendBtn = $('#send'), groupsBox = $('#groups');
+
+const TOKEN = (() => {
+  const fromUrl = new URLSearchParams(location.search).get('token');
+  if (fromUrl) { sessionStorage.setItem('pa_token', fromUrl); return fromUrl; }
+  return sessionStorage.getItem('pa_token') || '';
+})();
+
+const state = {
+  pending: [],
+  confirmed: [],
+  rejected: [],
+  results: [],
+  searching: false,
+  open: new Set(),
+  collapsed: new Set(),
+  fresh: new Set(),
+  onboard: new Set(),
+  noticeShown: false,
+};
+
+async function api(path, opts) {
+  opts = opts || {};
+  if (TOKEN) opts.headers = Object.assign({}, opts.headers, { authorization: 'Bearer ' + TOKEN });
+  const res = await fetch(path, opts);
+  const raw = await res.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
+  if (!res.ok) {
+    const msg = (data && (data.hint || data.error)) || (res.status + ' ' + res.statusText);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function relTime(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  const m = Math.floor(diff / 60000);
+  if (m < 60) return m + ' 分钟前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' 小时前';
+  const d = Math.floor(h / 24);
+  if (d === 1) return '昨天';
+  if (d < 7) return d + ' 天前';
+  const dt = new Date(ts);
+  return (dt.getMonth() + 1) + ' 月 ' + dt.getDate() + ' 日';
+}
+
+let toastTimer;
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+const STATE_LABEL = { pending: '未确认', claimed: '模型声称', confirmed: '本人核过', rejected: '已否决' };
+
+function stateOf(m) {
+  if (m.status === 'rejected') return 'rejected';
+  if (m.status === 'confirmed') return m.decided_by === 'user' ? 'confirmed' : 'claimed';
+  return 'pending';
+}
+
+function splitSource(m) {
+  const s = m.source || '';
+  const marker = ' · 否决理由：';
+  const i = s.indexOf(marker);
+  if (i === -1) return { source: s, reason: '' };
+  return { source: s.slice(0, i), reason: s.slice(i + marker.length) };
+}
+
+function renderDetail(m, s) {
+  const d = document.createElement('div');
+  d.className = 'detail';
+
+  if (m.quote) {
+    const q = document.createElement('div');
+    q.className = 'quote';
+    const h = document.createElement('b');
+    h.textContent = '它声称你的原话';
+    const body = document.createElement('div');
+    body.textContent = m.quote;
+    q.append(h, body);
+    d.appendChild(q);
+  }
+
+  const parts = splitSource(m);
+  const kv = document.createElement('div');
+  kv.className = 'kv';
+  const rows = [['来源', parts.source || '—'], ['分层', m.layer + ' / ' + m.kind]];
+  if (parts.reason) rows.push(['否决理由', parts.reason]);
+  if (m.decided_at) {
+    const who = m.decided_by === 'user' ? '本人' : '模型';
+    rows.push([m.status === 'rejected' ? '否决于' : '裁决于', who + ' · ' + relTime(m.decided_at)]);
+  }
+  for (const pair of rows) {
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = pair[0];
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = pair[1];
+    kv.append(k, v);
+  }
+  d.appendChild(kv);
+
+  if (s === 'pending' || s === 'claimed') {
+    const acts = document.createElement('div');
+    acts.className = 'acts';
+    const yes = document.createElement('button');
+    yes.className = 'yes';
+    const no = document.createElement('button');
+    no.className = 'no';
+    const quoted = !!m.quote;
+    yes.textContent = quoted ? '是我说的' : '判断没错';
+    no.textContent = quoted ? '我没说过' : '判断不对';
+    yes.onclick = () => decide(m.id, 'confirm');
+    no.onclick = () => askReject(m.id, acts);
+    acts.append(yes, no);
+    d.appendChild(acts);
+  }
+  return d;
+}
+
+function askReject(id, acts) {
+  acts.textContent = '';
+  const box = document.createElement('div');
+  box.className = 'reject-box';
+  const inp = document.createElement('input');
+  inp.placeholder = '为什么不成立（可留空）';
+  const row = document.createElement('div');
+  row.className = 'reject-row';
+  const go = document.createElement('button');
+  go.className = 'go';
+  go.textContent = '确认否决';
+  const cancel = document.createElement('button');
+  cancel.textContent = '取消';
+  go.onclick = () => decide(id, 'reject', inp.value.trim());
+  cancel.onclick = () => { state.open.delete(id); renderSidebar(); };
+  row.append(go, cancel);
+  box.append(inp, row);
+  acts.appendChild(box);
+  inp.focus();
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); go.click(); }
+    if (e.key === 'Escape') cancel.click();
+  });
+}
+
+async function decide(id, action, note) {
+  try {
+    const body = note ? JSON.stringify({ note }) : undefined;
+    await api('/memory/' + id + '/' + action, {
+      method: 'POST',
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body,
+    });
+    state.open.delete(id);
+    state.fresh = new Set([id]);
+    await loadMemory();
+    setTimeout(() => { state.fresh = new Set(); }, 700);
+    toast(action === 'confirm' ? '已核过，它会当成事实用' : '已否决，理由留在库里');
+  } catch (e) {
+    toast('裁决失败：' + e.message);
+  }
+}
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+const svgEl = (name, attrs) => {
+  const n = document.createElementNS(SVGNS, name);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+};
+
+function seededRand(seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let s = h >>> 0;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 一枚印章的边框：圆角矩形 + 每处顶点轻微抖动，看起来像按下去而不是画出来。 */
+function pressPath(w, h, r, rnd) {
+  const j = () => (rnd() - 0.5) * 1.4;
+  const x0 = 1.2 + j(), y0 = 1.2 + j(), x1 = w - 1.2 + j(), y1 = h - 1.2 + j();
+  return [
+    `M${(x0 + r).toFixed(1)} ${y0.toFixed(1)}`,
+    `L${(x1 - r).toFixed(1)} ${(y0 + j()).toFixed(1)}`,
+    `Q${x1.toFixed(1)} ${y0.toFixed(1)} ${x1.toFixed(1)} ${(y0 + r).toFixed(1)}`,
+    `L${(x1 + j()).toFixed(1)} ${(y1 - r).toFixed(1)}`,
+    `Q${x1.toFixed(1)} ${y1.toFixed(1)} ${(x1 - r).toFixed(1)} ${y1.toFixed(1)}`,
+    `L${(x0 + r).toFixed(1)} ${(y1 + j()).toFixed(1)}`,
+    `Q${x0.toFixed(1)} ${y1.toFixed(1)} ${x0.toFixed(1)} ${(y1 - r).toFixed(1)}`,
+    `L${(x0 + j()).toFixed(1)} ${(y0 + r).toFixed(1)}`,
+    `Q${x0.toFixed(1)} ${y0.toFixed(1)} ${(x0 + r).toFixed(1)} ${y0.toFixed(1)}`,
+    'Z',
+  ].join(' ');
+}
+
+/** 同一枚章在两处出现会长得不一样，因为它按的是不同的时刻。种子取记忆 id。 */
+function makeStamp(seed) {
+  const rnd = seededRand(seed);
+  const W = 46, H = 32;
+  const d = pressPath(W, H, 3.2, rnd);
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'stamp', 'aria-hidden': 'true', focusable: 'false' });
+  svg.style.setProperty('--tilt', (-8 + rnd() * 5).toFixed(1) + 'deg');
+
+  svg.appendChild(svgEl('path', { d, fill: 'rgba(178,58,50,.07)' }));
+  svg.appendChild(svgEl('path', { d, fill: 'none', stroke: '#B23A32', 'stroke-width': 3.4, opacity: .13 }));
+  svg.appendChild(svgEl('path', { d, fill: 'none', stroke: '#B23A32', 'stroke-width': 1.4, opacity: .16, transform: 'translate(-1.3,-.9)' }));
+  svg.appendChild(svgEl('path', { d, fill: 'none', stroke: '#B23A32', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+
+  for (const [cx, cy] of [[4.5, 4.5], [W - 4.5, 4.5], [4.5, H - 4.5], [W - 4.5, H - 4.5]]) {
+    svg.appendChild(svgEl('circle', {
+      cx: (cx + (rnd() - 0.5) * 2.6).toFixed(1),
+      cy: (cy + (rnd() - 0.5) * 2.6).toFixed(1),
+      r: (0.6 + rnd() * 0.7).toFixed(2),
+      fill: '#B23A32',
+      opacity: (0.18 + rnd() * 0.24).toFixed(2),
+    }));
+  }
+
+  const t = svgEl('text', {
+    x: W / 2, y: H / 2 + 0.5,
+    'text-anchor': 'middle', 'dominant-baseline': 'central',
+    stroke: '#B23A32', 'stroke-width': 0.42,
+  });
+  t.textContent = '已核';
+  svg.appendChild(t);
+  return svg;
+}
+
+function renderEntry(m) {
+  const s = stateOf(m);
+  const wrap = document.createElement('div');
+  wrap.className = 'entry' + (state.fresh.has(m.id) ? ' fresh' : '');
+  wrap.dataset.id = m.id;
+  wrap.dataset.s = s;
+
+  const item = document.createElement('div');
+  item.className = 'item';
+
+  const t = document.createElement('div');
+  t.className = 't';
+  t.textContent = m.text;
+
+  const meta = document.createElement('div');
+  meta.className = 'm';
+  const st = document.createElement('span');
+  st.className = 's-' + s;
+  st.textContent = STATE_LABEL[s];
+  meta.append(st, document.createTextNode(' · ' + relTime(m.created_at)));
+
+  item.append(t, meta);
+  if (s === 'confirmed') item.appendChild(makeStamp(m.id));
+  wrap.appendChild(item);
+  if (state.open.has(m.id)) wrap.appendChild(renderDetail(m, s));
+
+  item.onclick = () => {
+    if (state.open.has(m.id)) state.open.delete(m.id);
+    else state.open.add(m.id);
+    renderSidebar();
+  };
+  return wrap;
+}
+
+function groupData() {
+  if (state.searching) return [{ key: 'search', title: '搜索结果', rows: state.results }];
+  return [
+    { key: 'pending', title: '待裁决', rows: state.pending },
+    { key: 'confirmed', title: '已确认', rows: state.confirmed },
+    { key: 'rejected', title: '已否决', rows: state.rejected },
+  ];
+}
+
+/* 三条起步。它们不是问卷，是三次裁决——写完就各盖一枚章。
+   填掉一条它就从这里消失，剩下的空位留着，直到三条都在库里。 */
+const SLOTS = [
+  { n: 1, q: '你正在做什么', ph: '例：做一个个人 agent，准备开源' },
+  { n: 2, q: '你要我怎么说话', ph: '例：先给判断，别复述我的问题' },
+  { n: 3, q: '你不想要的', ph: '例：别替我做决定，别猜我偏好' },
+];
+const slotSource = (n) => '首次设定 · 第' + n + '条';
+
+function renderSlots(remaining, alone) {
+  const block = document.createElement('div');
+
+  const head = document.createElement('div');
+  head.className = 'group-title';
+  const label = document.createElement('span');
+  label.textContent = '起步';
+  const count = document.createElement('span');
+  count.className = 'n';
+  count.textContent = (SLOTS.length - remaining.length) + '/' + SLOTS.length;
+  head.append(label, count);
+  block.appendChild(head);
+
+  const slots = document.createElement('div');
+  slots.className = 'slots';
+  for (const spec of remaining) slots.appendChild(makeSlot(spec));
+  block.appendChild(slots);
+
+  if (alone) {
+    const hint = document.createElement('p');
+    hint.className = 'slots-hint';
+    hint.textContent = '写下去就算你亲口说过，直接盖章。\n我推出来的不算，它们先挂「待裁决」，等你点头。';
+    block.appendChild(hint);
+  }
+  return block;
+}
+
+function renderEmpty() {
+  const e = document.createElement('div');
+  e.className = 'side-empty';
+  e.textContent = state.searching
+    ? '没有匹配的记忆。'
+    : '还没有记忆。在右边说点什么，或者点上面的 + 自己写一条。';
+  return e;
+}
+
+function makeSlot(spec) {
+  const slot = document.createElement('div');
+  slot.className = 'slot';
+  slot.tabIndex = 0;
+  slot.setAttribute('role', 'button');
+  slot.setAttribute('aria-label', spec.q + '：' + spec.ph);
+
+  const q = document.createElement('span');
+  q.className = 'q';
+  q.textContent = spec.q;
+  const ph = document.createElement('span');
+  ph.className = 'ph';
+  ph.textContent = spec.ph;
+  slot.append(q, ph);
+
+  const open = () => editSlot(slot, spec);
+  slot.onclick = open;
+  slot.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+  };
+  return slot;
+}
+
+/** 写下去这一步不算“保存设置”，算一次裁决：你写的字就是原话，盖的是你自己的章。 */
+function editSlot(slot, spec) {
+  if (slot.classList.contains('editing')) return;
+  slot.classList.add('editing');
+  slot.onclick = null;
+  slot.onkeydown = null;
+  slot.textContent = '';
+
+  const inp = document.createElement('input');
+  inp.placeholder = spec.ph;
+  inp.autocomplete = 'off';
+  slot.appendChild(inp);
+  inp.focus();
+
+  let busy = false;
+  const commit = async () => {
+    const text = inp.value.trim();
+    if (!text) { inp.focus(); return; }
+    if (busy) return;
+    busy = true;
+    inp.disabled = true;
+    try {
+      const row = await api('/memory', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, source: slotSource(spec.n) }),
+      });
+      state.fresh = new Set([row.id]);
+      await loadMemory();
+      setTimeout(() => { state.fresh = new Set(); }, 760);
+      toast('已盖章。这条会当成你亲口说过的话用');
+    } catch (e) {
+      busy = false;
+      inp.disabled = false;
+      toast('没存上：' + e.message);
+      inp.focus();
+    }
+  };
+
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { e.preventDefault(); renderSidebar(); }
+  });
+  inp.addEventListener('blur', () => { if (!busy && !inp.value.trim()) setTimeout(renderSidebar, 90); });
+}
+
+function renderSidebar() {
+  const top = groupsBox.scrollTop;
+  groupsBox.textContent = '';
+
+  const visible = groupData().filter((g) => g.rows.length);
+  const total = state.pending.length + state.confirmed.length + state.rejected.length;
+  const started = state.onboard.size > 0;
+  // 只有“全新”或“已经开始填”的人才看到起步块。已经有自己记忆的人不需要被引导。
+  const remaining = state.searching || (total > 0 && !started)
+    ? []
+    : SLOTS.filter((s) => !state.onboard.has(s.n));
+
+  if (remaining.length) groupsBox.appendChild(renderSlots(remaining, !visible.length));
+
+  if (!visible.length) {
+    if (!remaining.length) groupsBox.appendChild(renderEmpty());
+    groupsBox.scrollTop = top;
+    return;
+  }
+
+  for (const g of visible) {
+    const wrap = document.createElement('div');
+    wrap.className = 'group';
+
+    const head = document.createElement('div');
+    head.className = 'group-title';
+    const caret = document.createElement('span');
+    caret.className = 'caret' + (state.collapsed.has(g.key) ? '' : ' down');
+    const label = document.createElement('span');
+    label.textContent = g.title;
+    const n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = String(g.rows.length);
+    head.append(caret, label, n);
+    head.onclick = () => {
+      if (state.collapsed.has(g.key)) state.collapsed.delete(g.key);
+      else state.collapsed.add(g.key);
+      renderSidebar();
+    };
+    wrap.appendChild(head);
+
+    if (!state.collapsed.has(g.key)) {
+      for (const m of g.rows) wrap.appendChild(renderEntry(m));
+    }
+    groupsBox.appendChild(wrap);
+  }
+  groupsBox.scrollTop = top;
+}
+
+async function loadMemory() {
+  try {
+    const [pending, confirmed, rejected] = await Promise.all([
+      api('/memory?review=1&limit=60'),
+      api('/memory?status=confirmed&limit=100'),
+      api('/memory?status=rejected&limit=50'),
+    ]);
+    const pids = new Set(pending.map((m) => m.id));
+    state.pending = pending;
+    state.confirmed = confirmed.filter((m) => !pids.has(m.id));
+    state.rejected = rejected;
+
+    // 起步三条填了几条，靠 source 认回来——库里没有“引导进度”这种字段，
+    // 也不需要：一个人自己写下的第一条，本来就应该留在记忆里可查。
+    state.onboard = new Set();
+    for (const m of state.confirmed) {
+      const hit = /^首次设定 · 第(\d)条/.exec(m.source || '');
+      if (hit) state.onboard.add(Number(hit[1]));
+    }
+    if (state.searching) {
+      const q = $('#q').value.trim();
+      state.searching = !!q;
+      if (q) state.results = await api('/memory?q=' + encodeURIComponent(q) + '&limit=40');
+    }
+    renderSidebar();
+    updateReviewBtn();
+    return pending;
+  } catch (e) {
+    toast('记忆读取失败：' + e.message);
+    return [];
+  }
+}
+
+function updateReviewBtn() {
+  const b = $('#reviewBtn');
+  const n = state.pending.length;
+  b.hidden = n === 0;
+  b.querySelector('em').textContent = n + ' 条待裁决';
+}
+
+function focusEntry(id) {
+  openSidebar(false);
+  state.open.add(id);
+  renderSidebar();
+  const el = groupsBox.querySelector('.entry[data-id="' + id + '"]');
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1000);
+}
+
+function addMsg(kind, text) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + kind;
+  if (kind === 'agent') {
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = 'memex';
+    const body = document.createElement('div');
+    body.textContent = text;
+    wrap.append(who, body);
+    log.appendChild(wrap);
+    scrollLog();
+    return body;
+  }
+  wrap.textContent = text;
+  log.appendChild(wrap);
+  scrollLog();
+  return wrap;
+}
+
+function addEvent(m) {
+  const el = document.createElement('div');
+  el.className = 'evt';
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+  const k = document.createElement('span');
+  k.className = 'k';
+  k.textContent = stateOf(m) === 'claimed' ? '记下原话' : '写入记忆';
+  const v = document.createElement('span');
+  v.className = 'v';
+  v.textContent = m.text;
+  const s = document.createElement('span');
+  s.className = 's';
+  s.textContent = '待裁决';
+  el.append(dot, k, v, s);
+  el.onclick = () => focusEntry(m.id);
+  log.appendChild(el);
+  scrollLog();
+}
+
+function scrollLog() {
+  log.scrollTop = log.scrollHeight;
+}
+
+function extractReply(res) {
+  if (!res) return '（空响应）';
+  if (res.status === 'unanswered') {
+    const why = { no_model: '模型没有接上', model_error: '模型调用失败', tool_error: '工具执行失败' }[res.reason] || res.reason;
+    return '（没有回答：' + why + '）';
+  }
+  const entries = res.messages || [];
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (!e || e.kind !== 'pi.assistant') continue;
+    const blocks = e.model || [];
+    for (const b of blocks) {
+      if (!b || b.role !== 'assistant') continue;
+      const parts = Array.isArray(b.content) ? b.content : [b.content];
+      const text = parts
+        .map((c) => (typeof c === 'string' ? c : c && c.type === 'text' ? c.text : ''))
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (text) return text;
+      if (b.errorMessage) return '（模型报错：' + b.errorMessage + '）';
+    }
+  }
+  return '（这一轮没有文本输出）';
+}
+
+function renderWelcome() {
+  if (log.children.length) return;
+  const w = document.createElement('div');
+  w.className = 'welcome';
+  const h = document.createElement('h3');
+  h.textContent = '我是 memex。';
+  const p1 = document.createElement('p');
+  p1.textContent = '我只属于你一个人，跑在 Cloudflare 上，没有服务器要养。现在能做的就三件：记住你写下的、想起你写过的、把没定的事挂出来等你定。';
+  const p2 = document.createElement('p');
+  p2.textContent = '左边那几条空位先填了，我会当真。我自己推出来的会标成「待裁决」——不是因为我爱编，是因为我不该替你把推断说成事实。';
+  w.append(h, p1, p2);
+  log.appendChild(w);
+}
+
+function showNotice(message) {
+  if (state.noticeShown) return;
+  state.noticeShown = true;
+  const n = document.createElement('div');
+  n.className = 'notice';
+  const txt = document.createElement('span');
+  txt.textContent = '模型未配置。' + message;
+  const x = document.createElement('button');
+  x.className = 'notice-x';
+  x.setAttribute('aria-label', '关闭');
+  x.textContent = '×';
+  x.onclick = () => n.remove();
+  n.append(txt, x);
+  $('#chat').insertBefore(n, log);
+}
+
+async function loadStatus() {
+  try {
+    const s = await api('/status');
+    const b = $('#model');
+    const label = String(s.model || '');
+    const short = label.split('（')[0].split('/').pop().trim() || label;
+    b.textContent = s.ready ? short : '未配置模型';
+    b.className = 'pill ' + (s.ready ? 'ok' : 'bad');
+    b.title = s.ready ? label + ' · 已就绪' : label;
+    if (!s.ready && s.hint) showNotice(s.hint);
+    updateReviewBtn();
+  } catch (e) {
+    const b = $('#model');
+    b.textContent = '离线';
+    b.className = 'pill bad';
+    b.title = '状态读取失败';
+  }
+}
+
+function autoGrow() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 170) + 'px';
+}
+
+input.addEventListener('input', () => {
+  autoGrow();
+  sendBtn.disabled = !input.value.trim();
+});
+
+$('#reviewBtn').onclick = () => {
+  state.collapsed.delete('pending');
+  renderSidebar();
+  openSidebar(false);
+  if (state.pending[0]) focusEntry(state.pending[0].id);
+};
+
+$('#menuBtn').onclick = () => openSidebar(!$('#sidebar').classList.contains('open'));
+$('#overlay').onclick = () => openSidebar(false);
+
+function openSidebar(open) {
+  $('#sidebar').classList.toggle('open', open);
+  $('#overlay').classList.toggle('show', open);
+}
+
+let searchTimer;
+$('#q').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (!q) {
+    state.searching = false;
+    state.results = [];
+    renderSidebar();
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      state.results = await api('/memory?q=' + encodeURIComponent(q) + '&limit=40');
+      state.searching = true;
+      renderSidebar();
+    } catch (err) {
+      toast(err.message);
+    }
+  }, 220);
+});
+
+$('#newBtn').onclick = () => {
+  const row = $('#newRow');
+  row.hidden = !row.hidden;
+  if (!row.hidden) $('#newText').focus();
+};
+
+async function saveManual() {
+  const el = $('#newText');
+  const text = el.value.trim();
+  if (!text) return;
+  try {
+    await api('/memory', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, source: '本人手写' }),
+    });
+    el.value = '';
+    $('#newRow').hidden = true;
+    await loadMemory();
+    toast('已记下，算你自己确认的');
+  } catch (e) {
+    toast('保存失败：' + e.message);
+  }
+}
+
+$('#newSave').onclick = saveManual;
+$('#newText').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveManual(); }
+});
+
+let sending = false;
+async function send() {
+  const text = input.value.trim();
+  if (!text || sending) return;
+  sending = true;
+  input.value = '';
+  autoGrow();
+  sendBtn.disabled = true;
+
+  const w = document.querySelector('.welcome');
+  if (w) w.remove();
+
+  addMsg('user', text);
+  const body = addMsg('agent', '…');
+  const before = new Set(state.pending.map((m) => m.id));
+
+  try {
+    const res = await api('/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    body.textContent = extractReply(res);
+    const pending = await loadMemory();
+    const added = pending.filter((m) => !before.has(m.id));
+    for (const m of added) addEvent(m);
+  } catch (e) {
+    body.parentElement.className = 'msg err';
+    body.parentElement.textContent = e.message;
+  } finally {
+    sending = false;
+    sendBtn.disabled = !input.value.trim();
+    input.focus();
+  }
+}
+
+sendBtn.onclick = send;
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+
+renderWelcome();
+loadStatus();
+loadMemory();
+input.focus();
+</script>
+</body>
+</html>
