@@ -72,7 +72,7 @@ flowchart LR
 需要 Node 22+ 和一个 DeepSeek API key。
 
 ```bash
-git clone https://github.com/<your-name>/memex.git
+git clone https://github.com/kbkb628/memex.git
 cd memex
 npm install
 cp .dev.vars.example .dev.vars     # 填 DEEPSEEK_API_KEY
