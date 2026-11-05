@@ -3,30 +3,60 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>personal agent</title>
+<title>memex</title>
 <style>
   body { font: 15px/1.65 system-ui, -apple-system, sans-serif; max-width: 640px; margin: 48px auto; padding: 0 16px; color: #111; }
   h1 { font-size: 15px; font-weight: 500; margin: 0 0 6px; }
   .hint { color: #666; font-size: 13px; margin: 0 0 20px; }
-  textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
+  textarea, input { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
+  input { margin-top: 6px; }
   button { font: inherit; font-size: 14px; padding: 6px 16px; margin-top: 8px; border: 1px solid #999; background: #fff; border-radius: 6px; cursor: pointer; }
   button:disabled { color: #aaa; border-color: #ddd; cursor: default; }
-  #ops { margin-top: 32px; }
-  .op { padding: 14px 0; border-top: 1px solid #e5e5e5; }
   .meta { font: 12px ui-monospace, SFMono-Regular, monospace; color: #999; }
+  section { margin-bottom: 36px; }
+  .sec-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #e5e5e5; padding-bottom: 6px; margin-bottom: 4px; }
+  .sec-head span:first-child { font-size: 13px; }
+  #ops { margin-top: 28px; }
+  .op { padding: 14px 0; border-top: 1px solid #e5e5e5; }
   .state { font-size: 13px; margin-top: 2px; }
   .text { white-space: pre-wrap; margin-top: 8px; }
   .text:empty { display: none; }
+  .note { padding: 14px 0; border-top: 1px solid #f0f0f0; }
+  .note:first-child { border-top: none; }
+  .note h3 { font-size: 14px; font-weight: 500; margin: 0 0 4px; }
+  .note h3 a { color: inherit; text-decoration: none; border-bottom: 1px solid #ddd; }
+  .note p { margin: 6px 0 0; white-space: pre-wrap; font-size: 14px; }
+  .note .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .note button { margin: 0; padding: 2px 10px; font-size: 12px; color: #666; }
+  details { margin-top: 16px; }
+  summary { font-size: 13px; color: #666; cursor: pointer; }
+  .empty { color: #999; font-size: 13px; padding: 14px 0; }
 </style>
 </head>
 <body>
-<h1>personal agent</h1>
+<h1>memex</h1>
 <p class="hint">发完可以直接关掉这个页面。它做完了，答案留在这儿，下次打开还在。</p>
 
-<textarea id="in" rows="3" placeholder="说一句话"></textarea>
-<button id="send">发送</button>
+<section>
+  <div class="sec-head">
+    <span>它替你看了什么</span>
+    <span class="meta" id="inbox-meta">读不到</span>
+  </div>
+  <div id="inbox"></div>
+  <details>
+    <summary>加一个订阅源</summary>
+    <input id="feed-url" placeholder="RSS / Atom 地址，https://…">
+    <input id="feed-want" placeholder="你想知道什么（一句话，比如「只报和持久执行有关的」）">
+    <button id="feed-add">接入</button>
+    <div class="meta" id="feed-msg" style="margin-top:8px"></div>
+  </details>
+</section>
 
-<div id="ops"></div>
+<section>
+  <textarea id="in" rows="3" placeholder="说一句话"></textarea>
+  <button id="send">发送</button>
+  <div id="ops"></div>
+</section>
 
 <script>
   const STORE = "agent.ops";
@@ -35,6 +65,103 @@
 
   const $ = (sel) => document.querySelector(sel);
 
+  // ── 收件箱：它自己看来的东西 ──────────────────────────────
+  async function loadInbox() {
+    let body;
+    try {
+      body = await (await fetch("/inbox")).json();
+    } catch {
+      $("#inbox-meta").textContent = "连不上";
+      return;
+    }
+    if (body.error) { $("#inbox-meta").textContent = body.error; return; }
+
+    const st = await (await fetch("/status")).json().catch(() => ({}));
+    const parts = [];
+    if (typeof body.unread === "number") parts.push(body.unread + " 条值得看");
+    if (typeof body.skipped === "number") parts.push("跳过 " + body.skipped);
+    if (st.budget) parts.push("今天用了 " + st.budget.used + "/" + st.budget.limit + " 次");
+    $("#inbox-meta").textContent = parts.join(" · ") || "还没有源";
+
+    const box = $("#inbox");
+    box.innerHTML = "";
+    if (!body.items || !body.items.length) {
+      box.innerHTML = '<div class="empty">它会每 3 小时看一遍你配的源。上面「加一个订阅源」开始。</div>';
+      return;
+    }
+    for (const item of body.items) {
+      const el = document.createElement("div");
+      el.className = "note";
+
+      const row = document.createElement("div");
+      row.className = "row";
+      const h = document.createElement("h3");
+      if (item.link) {
+        const a = document.createElement("a");
+        a.href = item.link;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        a.textContent = item.title;
+        h.appendChild(a);
+      } else {
+        h.textContent = item.title;
+      }
+      row.appendChild(h);
+
+      const btn = document.createElement("button");
+      btn.textContent = "知道了";
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        await fetch("/inbox/read", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: item.id }),
+        }).catch(() => {});
+        el.remove();
+        loadInbox();
+      });
+      row.appendChild(btn);
+      el.appendChild(row);
+
+      const p = document.createElement("p");
+      p.textContent = item.note || "";
+      el.appendChild(p);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.style.marginTop = "6px";
+      meta.textContent = item.feed;
+      el.appendChild(meta);
+
+      box.appendChild(el);
+    }
+  }
+
+  async function addFeed() {
+    const url = $("#feed-url").value.trim();
+    const want = $("#feed-want").value.trim();
+    if (!url) return;
+    $("#feed-add").disabled = true;
+    $("#feed-msg").textContent = "正在读这个源…";
+
+    const res = await fetch("/feeds", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url, want }),
+    }).catch(() => null);
+    $("#feed-add").disabled = false;
+
+    if (!res) { $("#feed-msg").textContent = "网络失败"; return; }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { $("#feed-msg").textContent = body.error || ("失败 " + res.status); return; }
+
+    $("#feed-url").value = "";
+    $("#feed-want").value = "";
+    $("#feed-msg").textContent = body.note || "已接入";
+    loadInbox();
+  }
+
+  // ── 对话：我问的东西 ──────────────────────────────────────
   function card(id) {
     let el = document.querySelector('[data-id="' + id + '"]');
     if (el) return el;
@@ -97,12 +224,16 @@
   }
 
   $("#send").addEventListener("click", send);
+  $("#feed-add").addEventListener("click", addFeed);
   $("#in").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
   });
 
   // 页面重开时，把还没结果的回执接着问一遍 —— 这就是「关掉也不丢」在界面上那一半。
   list().forEach(poll);
+  loadInbox();
+  // 它会在后台自己醒。页面开着的话，一分钟看一次有没有新东西进来。
+  setInterval(loadInbox, 60000);
 </script>
 </body>
 </html>
