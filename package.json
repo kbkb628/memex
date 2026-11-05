@@ -7,6 +7,7 @@
     "dev:remote": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
+    "receipt": "node scripts/receipt.mjs",
     "types": "wrangler types"
   },
   "dependencies": {

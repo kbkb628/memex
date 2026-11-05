@@ -22,6 +22,8 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 /** 给模型的默认正文上限。整页塞进上下文没有意义，模型也读不完。 */
 const DEFAULT_MAX_CHARS = 20_000;
+/** 下限。再小就只剩导航条了，对任务没有帮助。 */
+const MIN_MAX_CHARS = 1_000;
 
 const schema = Type.Object({
   url: Type.String({
@@ -29,7 +31,7 @@ const schema = Type.Object({
   }),
   maxChars: Type.Optional(
     Type.Number({
-      description: `正文最多保留多少字符，默认 ${DEFAULT_MAX_CHARS}。只想看开头时可以调小。`,
+      description: `正文最多保留多少字符，默认 ${DEFAULT_MAX_CHARS}，最少 ${MIN_MAX_CHARS}。只想看开头时可以调小。`,
     }),
   ),
 });
@@ -48,9 +50,10 @@ export function webExtension(): Extension {
         // 只读，重跑无副作用。这一行决定了断电恢复时它能不能被重新执行。
         replay: "safe",
         outputLimits: { maxBytes: 60_000, maxLines: 1_500, retain: "head" },
-        async execute(args) {
+        async execute(args, _api, context) {
           const url = args.url.trim();
-          const maxChars = clamp(args.maxChars, 1_000, DEFAULT_MAX_CHARS * 4) ?? DEFAULT_MAX_CHARS;
+          const asked = typeof args.maxChars === "number" ? args.maxChars : undefined;
+          const maxChars = clamp(asked, MIN_MAX_CHARS, DEFAULT_MAX_CHARS * 4) ?? DEFAULT_MAX_CHARS;
 
           let target: URL;
           try {
@@ -68,6 +71,16 @@ export function webExtension(): Extension {
             );
           }
 
+          // 两个中止源要合起来：一个是这个工具自己的超时，一个是 pi 给的取消信号
+          // （任务被 abort、对象要驱逐、调用方撤回了这次等待）。
+          //
+          // 只挂 timeout 是不够的：`conversation.abort()` 要等到整条会话 idle 才 resolve，
+          // 而它等的正是这个 fetch。工具不听 signal，abort 就会一直挂到 15 秒超时，
+          // 表现成「点了取消没反应」。官方 NOTES 里那条就是这个。
+          const signal = context.abortSignal
+            ? AbortSignal.any([context.abortSignal, AbortSignal.timeout(TIMEOUT_MS)])
+            : AbortSignal.timeout(TIMEOUT_MS);
+
           let response: Response;
           try {
             response = await fetch(target.toString(), {
@@ -78,13 +91,20 @@ export function webExtension(): Extension {
                 accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
               },
               redirect: "follow",
-              signal: AbortSignal.timeout(TIMEOUT_MS),
+              signal,
             });
           } catch (error) {
             // 「internal error」这种字面对模型没有任何用处，它只会转述给你。
             // 所以这里分两种：超时是一种（可以重试、可以换站点），其余归为网络层失败，
             // 并直说可能的原因 —— 多数情况下是站点在边缘网络上不可达，而不是参数错了。
             const err = error as { name?: string; message?: string };
+
+            // 取消不是这个站点的错。单独说一句，否则模型会把它当网络失败，换个源再试一遍，
+            // 而它其实应该停下来。
+            if (err?.name === "AbortError" && context.abortSignal?.aborted) {
+              return fail("aborted", "这次读取被取消了，不是站点的问题，不用换地址重试。");
+            }
+
             const timedOut = err?.name === "TimeoutError";
             const detail = [err?.name, err?.message].filter(Boolean).join(": ");
             return fail(
@@ -120,23 +140,59 @@ export function webExtension(): Extension {
           const body = text.slice(0, maxChars);
           const clipped = text.length > body.length;
 
+          // 截断时必须留一个能核对的东西。只给「前 N 字符」，模型会默认这就是全文；
+          // 给了总长度和指纹，它才知道自己读到的是一段，也知道两次读到的是不是同一版。
+          //
+          // 指纹只覆盖「已经读到的这部分」：响应体被 2MB 上限砍过时，原文本身就不完整，
+          // 下面的提示会说明这一点，不假装它是全文的指纹。
+          const fp = clipped || raw.truncated ? await fingerprint(text) : null;
+
           const lines = [
             `来源 ${target.toString()}`,
             clipped
-              ? `正文共 ${text.length} 字符，下面只保留前 ${body.length} 字符。`
+              ? `正文共 ${text.length} 字符，下面只保留前 ${body.length} 字符 —— 剩下的没读到，不要当作全文。`
               : `正文共 ${text.length} 字符。`,
           ];
-          if (raw.truncated) lines.push(`响应体超过 ${MAX_BYTES / 1024 / 1024}MB，只读了前一部分。`);
+          // 参数被改写过就说出来。静默把 400 抬成 1000，模型会以为自己只要了 400，
+          // 接着拿这个数字去推断「我是不是读全了」—— 那是错的推断。
+          if (asked !== undefined && asked !== maxChars)
+            lines.push(
+              `你要的 maxChars 是 ${asked}，这个工具允许 ${MIN_MAX_CHARS}–${DEFAULT_MAX_CHARS * 4}，实际按 ${maxChars} 给了。`,
+            );
+          if (fp) lines.push(`这段正文的 sha256 是 ${fp}。同一地址两次读到的指纹不同，说明页面变过。`);
+          if (raw.truncated)
+            lines.push(
+              `响应体超过 ${MAX_BYTES / 1024 / 1024}MB，只读了前一部分；上面的字符数和指纹只覆盖已读部分。`,
+            );
           lines.push("", body);
 
           return {
             output: [{ type: "text" as const, text: lines.join("\n") }],
-            details: { url: target.toString(), chars: text.length },
+            details: {
+              url: target.toString(),
+              chars: text.length,
+              clipped,
+              ...(fp ? { sha256: fp } : {}),
+            },
           };
         },
       }),
     ],
   };
+}
+
+/**
+ * 正文的短指纹：SHA-256 的前 8 字节，16 个十六进制字符。
+ *
+ * 不用完整的 64 个字符 —— 这是给模型看、给人核对「是不是同一版」用的，
+ * 16 个字符的碰撞概率在这个用途上够用，也短到不会把正文挤下去。
+ */
+async function fingerprint(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)]
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function fail(code: string, message: string) {

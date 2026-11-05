@@ -1,0 +1,196 @@
+{
+  "kind": "memex.idempotent",
+  "scenario": "idempotent",
+  "observed": true,
+  "passed": true,
+  "when": "2026-11-05T20:36:44.335Z",
+  "deploy": {
+    "target": "wrangler dev --local :8787",
+    "runtime": "Cloudflare Worker + Durable Object (SQLite), Local",
+    "model": "deepseek/deepseek-flash",
+    "note": "本地 workerd，不是线上；DO 状态在 .wrangler/state，重启后保留"
+  },
+  "driver": "node scripts/receipt.mjs idempotent",
+  "request": {
+    "operationId": "receipt-mw40agv0",
+    "session": "489",
+    "prompt": "读 https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/ 然后用中文列出三件它明确说 Durable Object 能做到、而普通 Worker 做不到的事。每条一句话，并说明你是从正文哪一段看到的。如果正文没读到，直接说没读到，不要猜。"
+  },
+  "attempts": [
+    {
+      "operationId": "receipt-mw40agv0",
+      "session": "489",
+      "accepted": true,
+      "at": 1793910998011
+    },
+    {
+      "operationId": "receipt-mw40agv0",
+      "session": "489",
+      "accepted": false,
+      "at": 1793910998076
+    },
+    {
+      "operationId": "receipt-mw40agv0",
+      "session": "489",
+      "accepted": false,
+      "at": 1793911004292
+    }
+  ],
+  "transcript": [
+    {
+      "role": "assistant",
+      "text": "读到了。正文里明确以「unlike regular Workers / 与普通 Worker 不同」为线索的对照，能站住的是这三条：\n\n1. **可以拥有全局唯一的名称，从而从世界任何地方把请求定向到那个特定对象，用来在多个客户端之间做协调。**\n依据：「However, unlike regular Workers」之后的第一条 bullet——\"Each Durable Object has a globally-unique name, which allows you to send requests to a specific object from anywhere in the world. Thus, a Durable Object can be used to coordinate between multiple clients who need to work together.\"\n\n2. **自带与计算同址的持久存储，强一致、可事务、跨请求保留，并可长期保存状态。**\n依据：同段第二条 bullet——\"Each Durable Object has some durable storage attached. Since this storage lives together with the object, it is strongly consistent yet fast to access.\"（具体规格在「Storage colocated with compute」bullet：durable, transactional, strongly consistent，上限 10 GB，仅该对象可访问。）\n\n3. **可以在内存里持有跨请求的状态、并在空闲若干秒后进入休眠，把内存当缓存用。**\n依据：「Serverless compute, zero infrastructure management」下第三条 bullet——\"Each Durable Object stays alive as long as requests are being processed, and remains alive for several seconds after being idle before hibernating, allowing applications to exploit in-memory caching while handling many consecutive requests\"；以及「In-memory state」一节 \"Each Durable Object has its own in-memory state\"。\n\n一个提醒：第三条比前两条弱。页面没直接说「普通 Worker 做不到内存缓存」，它只在 in-memory state 一节说休眠后内存会被重置。真正被页面写成对照（unlike regular Workers）的只有前两条；第三条是我按「DO 有实例级内存状态」推出来的，严格讲属于推断，不是原文的明确对照。"
+    }
+  ],
+  "checks": [
+    {
+      "name": "dev server 起来了",
+      "pass": true,
+      "detail": "3806ms"
+    },
+    {
+      "name": "模型已就绪",
+      "pass": true,
+      "detail": "deepseek/deepseek-flash"
+    },
+    {
+      "name": "第一次提交被接受",
+      "pass": true,
+      "detail": "session 489"
+    },
+    {
+      "name": "立刻重发不被接受",
+      "pass": true
+    },
+    {
+      "name": "立刻重发落回原会话",
+      "pass": true,
+      "detail": "session 489"
+    },
+    {
+      "name": "重发没有制造第二条任务",
+      "pass": true,
+      "detail": "status running"
+    },
+    {
+      "name": "任务跑完",
+      "pass": true
+    },
+    {
+      "name": "跑完之后重发也不被接受",
+      "pass": true
+    },
+    {
+      "name": "跑完之后仍落回原会话",
+      "pass": true,
+      "detail": "session 489"
+    },
+    {
+      "name": "回执没有被第二次提交改写",
+      "pass": true
+    },
+    {
+      "name": "整轮只新增一条会话",
+      "pass": true,
+      "detail": "31 → 32"
+    }
+  ],
+  "steps": [
+    {
+      "step": "start dev server",
+      "at": "2026-11-05T20:36:34.185Z",
+      "ms": 31
+    },
+    {
+      "step": "status before",
+      "at": "2026-11-05T20:36:37.980Z",
+      "ms": 3825,
+      "body": {
+        "model": "deepseek/deepseek-flash",
+        "sessions": 31,
+        "budget": {
+          "used": 6,
+          "limit": 20
+        }
+      }
+    },
+    {
+      "step": "submit",
+      "at": "2026-11-05T20:36:38.066Z",
+      "ms": 3911,
+      "status": 200,
+      "body": {
+        "operationId": "receipt-mw40agv0",
+        "session": "489",
+        "accepted": true,
+        "at": 1793910998011
+      }
+    },
+    {
+      "step": "resubmit immediately",
+      "at": "2026-11-05T20:36:38.113Z",
+      "ms": 3958,
+      "status": 200,
+      "body": {
+        "operationId": "receipt-mw40agv0",
+        "session": "489",
+        "accepted": false,
+        "at": 1793910998076
+      }
+    },
+    {
+      "step": "op after resubmit",
+      "at": "2026-11-05T20:36:38.132Z",
+      "ms": 3977,
+      "body": {
+        "operationId": "receipt-mw40agv0",
+        "session": "489",
+        "status": "running",
+        "live": true
+      }
+    },
+    {
+      "step": "settled",
+      "at": "2026-11-05T20:36:44.284Z",
+      "ms": 10129,
+      "body": {
+        "status": "done",
+        "chars": 1316
+      }
+    },
+    {
+      "step": "resubmit after done",
+      "at": "2026-11-05T20:36:44.303Z",
+      "ms": 10148,
+      "status": 200,
+      "body": {
+        "operationId": "receipt-mw40agv0",
+        "session": "489",
+        "accepted": false,
+        "at": 1793911004292
+      }
+    },
+    {
+      "step": "op after done-resubmit",
+      "at": "2026-11-05T20:36:44.323Z",
+      "ms": 10168,
+      "body": {
+        "status": "done",
+        "chars": 1316
+      }
+    },
+    {
+      "step": "status after",
+      "at": "2026-11-05T20:36:44.335Z",
+      "ms": 10180,
+      "body": {
+        "sessions": 32,
+        "budget": {
+          "used": 6,
+          "limit": 20
+        }
+      }
+    }
+  ],
+  "notes": []
+}

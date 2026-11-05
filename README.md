@@ -149,8 +149,12 @@ src/
   models.ts    模型装配，与部署平台解耦
 public/
   index.html   单文件界面，故意做得很丑
+scripts/
+  receipt.mjs  跑一个真实场景，把每一步写进 receipts/
+receipts/      真跑出来的凭证，不是人写的
 _shelved/      归档的旧实现（记忆层、五层提示词、memex 界面）
 docs/decisions/ 架构决策记录
+docs/research/  调研笔记（哪些能借、哪些不能）
 ```
 
 ## 九个取舍
@@ -167,13 +171,14 @@ docs/decisions/ 架构决策记录
 
 ## 验到哪儿了
 
-诚实分档，不掺水：
+诚实分档，不掺水。**带链接的那两条不是描述，是 `node scripts/receipt.mjs <场景>` 当场跑出来的文件**——脚本自己拉起 wrangler dev，自己在半路杀掉 workerd，再把服务和检查跑完，把每一步的耗时和结果写进 `receipts/`。
 
 | 验过 | 怎么验的 |
 |---|---|
 | 真实端到端 | 真 key，`deepseek-flash`，从提交到 `done` 拿到完整回答 |
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
-| 幂等 | 同一个 `operationId` 重发 → `accepted: false`，回到原会话，不新建、不产生第二条任务 |
+| **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
+| **断电续跑** | 真杀 `workerd`（核过端口确实不通），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（9/9） |
 | 野 id 不挂住 | `GET /op?id=nope` → 404（先查 pending 再 wait，不会把请求挂在对象里） |
 | **自己会醒** | 排期 60 秒后，不发任何请求干等 75 秒，`/patrol` 里出现了这次巡检的结果 |
 | **加源不吃历史** | 接入一个有 20 条的源 → `baseline: 20`，立刻跑一轮 → `fresh: 0`，预算仍是 0 |

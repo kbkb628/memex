@@ -739,7 +739,9 @@ export class Home extends DurableObject<Env> {
     const session = note.session ?? ROOT;
 
     const live = (await this.harness.pending({ session })).find((p) => p.operationId === id);
-    if (live) return Response.json({ operationId: id, status: live.status, live: true });
+    // 两个分支必须给同样的字段。少了 session，调用方在任务跑着的时候拿不到
+    // 「它落在哪条时间线上」，而这个信息在提交的回执里本来就有。
+    if (live) return Response.json({ operationId: id, session, status: live.status, live: true });
 
     return Response.json(await this.harness.wait(id, { session }));
   }
