@@ -1,4 +1,6 @@
 # 仓库里一律 LF。Windows 上的 CRLF 会让跨平台 diff、lint、CI 出现无意义的整文件改动。
 * text=auto eol=lf
+# .cmd 必须 CRLF：cmd.exe 对只有 LF 的批处理会在 goto/label 上出问题。
+*.cmd text eol=crlf
 *.png binary
 *.woff2 binary

@@ -151,6 +151,8 @@ type IngestReport = {
   budget: { day: string; used: number; limit: number };
   /** 这一轮有几个源是第一次接上、只记基线不提交的。 */
   baselined?: number;
+  /** 这一轮清掉了几条「源已经不在了」的收件箱条目。 */
+  pruned?: number;
   note?: string;
 };
 
@@ -402,6 +404,19 @@ export class Home extends DurableObject<Env> {
       skipped: 0,
       budget: { day: localDay(now), used: 0, limit: DAILY_CALLS },
     };
+
+    // 清掉无主的收件箱条目：源已经不在了，它当初的判断结果留在这里只会让人困惑。
+    // removeFeed 自己就会连带删，这里兜的是那条规则生效之前留下的幽灵，
+    // 以及任何其它让 feedId 对不上的情况（比如手工改库）。
+    const live = new Set(feeds.map((f) => f.id));
+    const inbox = await this.ctx.storage.list<InboxItem>({ prefix: "inbox:" });
+    const ghosts = [...inbox.entries()]
+      .filter(([, item]) => !live.has(item.feedId))
+      .map(([key]) => key);
+    if (ghosts.length) {
+      await this.ctx.storage.delete(ghosts);
+      report.pruned = ghosts.length;
+    }
 
     // 1. 结算上一批
     const settled = await this.settle();
@@ -693,7 +708,22 @@ export class Home extends DurableObject<Env> {
 
     await this.ctx.storage.put("cfg:feeds", next);
     await this.ctx.storage.delete(`seen:${id}`);
-    return Response.json({ ok: true, feeds: next.length });
+
+    // 连带清掉它产出的条目。
+    //
+    // 不清的话页面上会留下一行「源名」，点进去是它当时判断过的东西，而这个源
+    // 已经不在列表里 —— 你没法从界面判断它是哪来的，也没法把它加回来对账。
+    // 「删掉一个源」在用户心里是「这块我不要了」，不是「先藏起来」。
+    //
+    // 代价：连它产出的、你已经标为读过的条目一起没了。接受 —— 源都没了，
+    // 留着那条历史也不能再长出新的来。
+    const inbox = await this.ctx.storage.list<InboxItem>({ prefix: "inbox:" });
+    const doomed = [...inbox.entries()]
+      .filter(([, item]) => item.feedId === id)
+      .map(([key]) => key);
+    if (doomed.length) await this.ctx.storage.delete(doomed);
+
+    return Response.json({ ok: true, feeds: next.length, removedItems: doomed.length });
   }
 
   /**
