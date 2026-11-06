@@ -182,7 +182,7 @@ public/
   index.html   单文件界面，故意做得很丑
 scripts/
   receipt.mjs  跑一个真实场景，把每一步写进 receipts/
-receipts/      真跑出来的凭证，不是人写的
+receipts/      真跑出来的凭证，不是人写的；sabotage-* 是故意跑红的那份
 _shelved/      归档的旧实现（记忆层、五层提示词、memex 界面）
 docs/decisions/ 架构决策记录
 docs/research/  调研笔记（哪些能借、哪些不能）
@@ -220,7 +220,7 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
 | **同一个 id 换内容会被拦** | 同 id 重发另一段文字 → `409 operation_id_reused`；跑完的答案仍是第一段那段文字的，被拦那段一个字都没进执行路径 → [receipts/reuse.json](receipts/reuse.json)（11/11） |
-| **断电续跑** | 真杀 `workerd`（核过端口确实不通），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（9/9） |
+| **断电续跑** | 真杀 `workerd`（核过端口确实不通，而且这条断言自己红过一次，见下），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（10/10） |
 | **用量算得出来** | 跑一个任务后累计 token 从 154653 涨到 155164（+511），估算金额从 $0.047572 到 $0.047655；同一份账在六十秒缓存期内两次读到的 `at` 相同；金额自带 `costKind: "estimate"` → [receipts/spend.json](receipts/spend.json)（19/19） |
 | **回执答得出跑了多久** | `elapsedMs` 有值，且同一条回执问两次 `endedAt` 不变（只盖一次） → 同上 |
 | **预算不混账** | 同一次检查里，今天总数从 46 涨到 47，而「自动」那一栏 17 → 17 不动 → 同上 |
@@ -232,6 +232,35 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | **一个任务一个会话** | 见下 |
 | **跑到一半被杀，重启后跑完** | 见下 |
 | **带工具的任务被杀，重启后跑完** | 见下，且答案里有三页真实原文 |
+
+### 这些断言自己也被证明会红
+
+上面每一条都写着「通过」。但通过本身证明不了什么——断言写松了，坏掉的代码也会一路绿，而且绿得比真的好。
+
+所以脚本带一个自伤开关：
+
+```
+RECEIPT_SABOTAGE=skip-kill node scripts/receipt.mjs break-resume
+```
+
+它把「杀 workerd」退化成「只杀父进程 node」，也就是当初那个假阳性。跑出来是 **9/10**：
+
+| 断言 | 结果 |
+|---|---|
+| 杀之前已经在跑 | PASS |
+| **进程真的死了（端口不通）** | **FAIL** |
+| 重启后服务恢复 | PASS |
+| 重启后回执还在，且是同一条会话 | PASS（session 903） |
+| 最终拿到 done | PASS |
+| 答案不是空的 | PASS（658 字符） |
+
+这一栏比它看起来重：进程一次都没死（等了整整 30 秒，端口一直通），可「回执还在」「最终 done」「答案 658 字符」全都照常通过。**如果当初没写那条端口断言，这份凭证会以「断电续跑成功」的完整样子交出去，而实际上一次断电都没发生。**
+
+顺带发现一件原先不知道的事：`wrangler dev` 会在 `workerd` 被杀后把它**自动拉起来**。所以「杀 workerd」天然只是一个闪断窗口，真正的断电必须连 wrangler 主进程一起收掉——这也是为什么脚本里杀完之后还要 `stopDev()`，而不是杀完就算。
+
+`9/10` 里那个 10 是分母，那个 9 才是这次对照的价值：红的只有该红的那一条，没有连累别人，说明断言之间分工是干净的。判定规则写在脚本里——红少了是断言抓不住这个故障，红多了是预期写得不完整，两种都算对照不成立。
+
+产物单独存放，不会覆盖正式凭证：[receipts/sabotage-skip-kill-break-resume.json](receipts/sabotage-skip-kill-break-resume.json)。
 
 会话隔离的验法不是看代码，是让它自证：
 

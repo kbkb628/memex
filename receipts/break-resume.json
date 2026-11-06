@@ -1,8 +1,9 @@
 {
   "kind": "memex.break-resume",
+  "scenario": "break-resume",
   "observed": true,
   "passed": true,
-  "when": "2026-11-05T20:36:06.948Z",
+  "when": "2026-11-06T09:57:41.908Z",
   "deploy": {
     "target": "wrangler dev --local :8787",
     "runtime": "Cloudflare Worker + Durable Object (SQLite), Local",
@@ -11,19 +12,25 @@
   },
   "driver": "node scripts/receipt.mjs break-resume",
   "request": {
-    "operationId": "receipt-mw409kem",
-    "session": "473",
+    "operationId": "receipt-mw4swfcf",
+    "session": "918",
     "prompt": "读 https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/ 然后用中文列出三件它明确说 Durable Object 能做到、而普通 Worker 做不到的事。每条一句话，并说明你是从正文哪一段看到的。如果正文没读到，直接说没读到，不要猜。"
   },
   "timing": {
     "submitToKillMs": 3000,
-    "submitToDoneMs": 11014
+    "submitToDoneMs": 10199
   },
+  "transcript": [
+    {
+      "role": "assistant",
+      "text": "读到了正文。三条（都出自\"However, unlike regular Workers\"那段，以及与之紧接的开头段）：\n\n1. **给单个对象一个全局唯一名字，从而从世界任何地方把请求定向到特定对象** —— \"However, unlike regular Workers\" 第一条（\"Each Durable Object has a globally-unique name…\"）。\n\n2. **每个对象自带与计算同处一地的持久存储，强一致且访问快** —— 同一段第二条（\"Each Durable Object has some durable storage attached…”），\"Storage colocated with compute\" 一节也重复了这点。\n\n3. **靠上面两条实现\"有状态\"的 serverless（可在多个客户端之间做协调）** —— 紧接着那句结论 \"Therefore, Durable Objects enable stateful serverless applications.\"，以及 WebSockets 一节说的单点协调多客户端。\n\n一点保留：页面正文没有把这三条逐条写成\"普通 Worker 做不到\"，它的措辞是 \"unlike regular Workers\" 加一个补充说明段，第三条是从结论句推出来的。另外 Alarms API、静默后仍存活数秒的内存缓存这些也只是说 DO 有这功能，没有直接对比普通 Worker。"
+    }
+  ],
   "checks": [
     {
       "name": "dev server 起来了",
       "pass": true,
-      "detail": "3665ms"
+      "detail": "3959ms"
     },
     {
       "name": "模型已就绪",
@@ -33,7 +40,7 @@
     {
       "name": "拿到回执",
       "pass": true,
-      "detail": "session 473"
+      "detail": "session 918"
     },
     {
       "name": "杀之前已经在跑",
@@ -50,7 +57,7 @@
     {
       "name": "重启后回执还在，且是同一条会话",
       "pass": true,
-      "detail": "session 473"
+      "detail": "session 918"
     },
     {
       "name": "最终拿到 done",
@@ -60,101 +67,105 @@
     {
       "name": "答案不是空的",
       "pass": true,
-      "detail": "917 字符"
+      "detail": "645 字符"
+    },
+    {
+      "name": "整轮只新增一条会话",
+      "pass": true,
+      "detail": "60 → 61"
     }
   ],
   "steps": [
     {
       "step": "start dev server",
-      "at": "2026-11-05T20:35:52.262Z",
-      "ms": 42
+      "at": "2026-11-06T09:57:27.748Z",
+      "ms": 35
     },
     {
-      "step": "status before submit",
-      "at": "2026-11-05T20:35:55.918Z",
-      "ms": 3696,
+      "step": "status before",
+      "at": "2026-11-06T09:57:31.694Z",
+      "ms": 3980,
       "body": {
         "model": "deepseek/deepseek-flash",
-        "sessions": 30,
-        "feeds": 5,
+        "sessions": 60,
         "budget": {
-          "used": 6,
-          "limit": 20
+          "day": "2026-11-06",
+          "used": 20,
+          "limit": 20,
+          "manual": 34,
+          "total": 54
         }
       }
     },
     {
       "step": "submit",
-      "at": "2026-11-05T20:35:56.006Z",
-      "ms": 3784,
+      "at": "2026-11-06T09:57:31.783Z",
+      "ms": 4069,
       "status": 200,
       "body": {
-        "operationId": "receipt-mw409kem",
-        "session": "473",
+        "operationId": "receipt-mw4swfcf",
+        "session": "918",
         "accepted": true,
-        "at": 1793910955948
+        "at": 1793959051727
       }
     },
     {
       "step": "observed running",
-      "at": "2026-11-05T20:35:56.044Z",
-      "ms": 3822,
+      "at": "2026-11-06T09:57:31.801Z",
+      "ms": 4087,
       "body": {
-        "operationId": "receipt-mw409kem",
-        "session": "473",
+        "operationId": "receipt-mw4swfcf",
+        "session": "918",
         "status": "running",
         "live": true
       }
     },
     {
       "step": "killed workerd",
-      "at": "2026-11-05T20:35:59.051Z",
-      "ms": 7060,
-      "note": "中止时已跑 3364ms"
+      "at": "2026-11-06T09:57:35.091Z",
+      "ms": 7377,
+      "note": "中止时已跑 3396ms"
     },
     {
       "step": "restart dev server",
-      "at": "2026-11-05T20:36:00.125Z",
-      "ms": 7903
+      "at": "2026-11-06T09:57:35.953Z",
+      "ms": 8239
     },
     {
       "step": "op right after restart",
-      "at": "2026-11-05T20:36:03.823Z",
-      "ms": 11601,
+      "at": "2026-11-06T09:57:39.816Z",
+      "ms": 12102,
       "body": {
-        "operationId": "receipt-mw409kem",
-        "session": "473",
+        "operationId": "receipt-mw4swfcf",
+        "session": "918",
         "status": "running",
         "live": true
       }
     },
     {
       "step": "settled",
-      "at": "2026-11-05T20:36:06.932Z",
-      "ms": 14710,
+      "at": "2026-11-06T09:57:41.894Z",
+      "ms": 14180,
       "body": {
         "status": "done",
-        "chars": 917
+        "chars": 645
       },
-      "note": "11014ms"
+      "note": "10199ms"
     },
     {
       "step": "status after",
-      "at": "2026-11-05T20:36:06.947Z",
-      "ms": 14725,
+      "at": "2026-11-06T09:57:41.908Z",
+      "ms": 14194,
       "body": {
-        "sessions": 31,
+        "sessions": 61,
         "budget": {
-          "used": 6,
-          "limit": 20
+          "day": "2026-11-06",
+          "used": 20,
+          "limit": 20,
+          "manual": 35,
+          "total": 55
         }
       }
-    }
-  ],
-  "transcript": [
-    {
-      "role": "assistant",
-      "text": "读到了。页面明确用 “unlike regular Workers” 引出对比，三件事：\n\n1. **每个对象有全局唯一的名字，可以从世界任何地方把请求发给指定的那个对象，因此能在多个需要协作的客户端之间做协调。**\n   出处：「What are Durable Objects?」开头 “unlike regular Workers” 下面的第一条 bullet。\n\n2. **每个对象自带持久存储，而且存储和对象同居一处，所以强一致且访问快。**\n   出处：同上的第二条 bullet（“…has some durable storage attached. Since this storage lives together with the object, it is strongly consistent yet fast to access.”）。\n\n3. **对象可以被唤醒 / 保持存活以承载长时间连接（WebSocket），并在单个对象内做单线程、协作式多任务的并发协调。**\n   出处：「Durable Objects features」下 WebSockets 一段（“Because Durable Objects provide a single-point-of-coordination between Cloudflare Workers, a single Durable Object instance can be used in parallel with WebSockets to coordinate between multiple clients…”），以及 “Single-threaded concurrency” 一节。\n\n一处提醒：第 3 条严格说，正文没把 “WebSocket 长连接” 直接标成 “Worker 做不到”——它说的是 DO 适合接 WebSocket 的客户端/服务端连接。真正与普通 Worker 的明确对比只有前两条 bullet。第三条我按 “单点协调 + 单线程串行 + 有状态存活” 归并，属于页面内容的合理归纳，不是原文的逐字对比句。"
     }
   ],
   "notes": []

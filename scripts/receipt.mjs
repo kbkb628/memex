@@ -20,6 +20,11 @@
  *   PORT=8787            本地端口
  *   KILL_AFTER_MS=3000   看到 running 之后再等多久才杀（留时间让工具真的开始跑）
  *   TASK_TIMEOUT_MS=300000  从提交到 done 的上限
+ *   RECEIPT_SABOTAGE=skip-kill|no-restart
+ *                        负向对照：故意把某一环弄坏，看断言是不是真的会红。
+ *                        「全部通过」本身不能证明凭证有效 —— 断言写松了，坏掉的代码
+ *                        也会一路绿。只有见过它红，绿色才算数。产物单独存放，
+ *                        不会覆盖正式凭证。
  */
 
 import { spawn, execFileSync } from "node:child_process";
@@ -32,6 +37,14 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const KILL_AFTER_MS = Number(process.env.KILL_AFTER_MS ?? 3000);
 const TASK_TIMEOUT_MS = Number(process.env.TASK_TIMEOUT_MS ?? 300_000);
 const BOOT_TIMEOUT_MS = 180_000;
+
+/** 负向对照模式。空字符串 = 正常跑。 */
+const SABOTAGE = process.env.RECEIPT_SABOTAGE ?? "";
+/** 每个对照模式预期会变红的那几条断言。红的不是这里列的，就是真问题。 */
+const SABOTAGE_EXPECT = {
+  "skip-kill": ["进程真的死了（端口不通）"],
+  "no-restart": ["重启后服务恢复", "最终拿到 done", "答案不是空的"],
+};
 
 const PROMPT =
   "读 https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/ " +
@@ -121,6 +134,17 @@ function stopDev() {
  * 于是「杀掉后还能跑完」看起来成立，实际上进程根本没死。所以杀完要确认端口真的断了。
  */
 function killWorkerd() {
+  // 负向对照 skip-kill：只杀父进程，让 workerd 变孤儿 —— 这正是当初那个假阳性。
+  // 那时「杀掉后还能跑完」看起来成立，其实进程根本没死。留着这条路，
+  // 是为了随时能验证下面那条端口断言还抓得住它。
+  if (SABOTAGE === "skip-kill") {
+    if (process.platform === "win32") {
+      execFileSync("taskkill", ["/F", "/PID", String(dev?.pid ?? 0)], { stdio: "ignore" });
+    } else {
+      process.kill(dev?.pid ?? 0, "SIGKILL");
+    }
+    return;
+  }
   if (process.platform === "win32") {
     execFileSync("taskkill", ["/F", "/IM", "workerd.exe"], { stdio: "ignore" });
   } else {
@@ -211,22 +235,35 @@ async function scenarioBreakResume() {
     await waitFor(async () => !(await alive()), 10_000, 300);
     await sleep(500);
 
-    step("restart dev server");
-    startDev();
-    const back = await waitFor(alive, BOOT_TIMEOUT_MS);
-    check("重启后服务恢复", back);
-    if (!back) throw new Error(`重启失败${lastDevLog()}`);
+    // 负向对照 no-restart：进程死了就不拉起来。断言必须因此变红，
+    // 否则说明「重启后还在跑」那几条其实是在读死进程的缓存。
+    if (SABOTAGE === "no-restart") {
+      check("重启后服务恢复", false, "对照模式下故意不重启");
+      const quiet = await getOp(operationId).catch(() => ({ httpStatus: 0, body: null }));
+      check(
+        "重启后回执还在，且是同一条会话",
+        quiet.body?.session !== undefined && String(quiet.body.session) === session,
+        `session ${quiet.body?.session}`,
+      );
+      notes.push("负向对照 no-restart：服务没有拉起来，后续断言应为红。");
+    } else {
+      step("restart dev server");
+      startDev();
+      const back = await waitFor(alive, BOOT_TIMEOUT_MS);
+      check("重启后服务恢复", back);
+      if (!back) throw new Error(`重启失败${lastDevLog()}`);
 
-    const duringRestart = await getOp(operationId);
-    step("op right after restart", { body: duringRestart.body });
-    check(
-      "重启后回执还在，且是同一条会话",
-      duringRestart.httpStatus === 200 && String(duringRestart.body?.session) === session,
-      `session ${duringRestart.body?.session}`,
-    );
+      const duringRestart = await getOp(operationId);
+      step("op right after restart", { body: duringRestart.body });
+      check(
+        "重启后回执还在，且是同一条会话",
+        duringRestart.httpStatus === 200 && String(duringRestart.body?.session) === session,
+        `session ${duringRestart.body?.session}`,
+      );
+    }
   }
 
-  const final = await waitSettled(operationId);
+  const final = await waitSettled(operationId, SABOTAGE === "no-restart" ? 45_000 : TASK_TIMEOUT_MS);
   const totalMs = Date.now() - submitAt;
   step("settled", {
     body: final ? { status: final.status, chars: final.text?.length ?? 0 } : null,
@@ -488,19 +525,45 @@ async function main() {
 
   const ok = checks.every((c) => c.pass);
 
+  // 负向对照的判定和正常跑相反：这里不看「有没有红」，而看「红的是不是正好那几条」。
+  // 少红了 = 断言抓不住这个故障；多红了 = 有别的地方被连带弄坏，预期写得不完整。
+  let sabotage = null;
+  if (SABOTAGE) {
+    const expect = SABOTAGE_EXPECT[SABOTAGE];
+    if (!expect) throw new Error(`没有这个对照模式：${SABOTAGE}（可选 ${Object.keys(SABOTAGE_EXPECT).join(" / ")}）`);
+    const failed = checks.filter((c) => !c.pass).map((c) => c.name);
+    const missing = expect.filter((n) => !failed.includes(n));
+    const extra = failed.filter((n) => !expect.includes(n));
+    sabotage = {
+      mode: SABOTAGE,
+      expectedRed: expect,
+      actualRed: failed,
+      /** 对照成立：该红的红了，且没有连累别的。 */
+      held: missing.length === 0 && extra.length === 0,
+      missing,
+      extra,
+    };
+    console.log(`\n负向对照 ${SABOTAGE}：${sabotage.held ? "成立" : "不成立"}`);
+    if (missing.length) console.log(`  该红没红：${missing.join("、")}`);
+    if (extra.length) console.log(`  额外变红：${extra.join("、")}`);
+  }
+
   const receipt = {
     kind: `memex.${NAME}`,
     scenario: NAME,
     observed: true,
     passed: ok,
+    ...(sabotage ? { sabotage } : {}),
     when: new Date().toISOString(),
     deploy: {
       target: `wrangler dev --local :${PORT}`,
       runtime: "Cloudflare Worker + Durable Object (SQLite), Local",
       model: before.model,
-      note: "本地 workerd，不是线上；DO 状态在 .wrangler/state，重启后保留",
+      note: sabotage
+        ? `负向对照（${sabotage.mode}）：这一份故意是坏的，不能当验收凭据`
+        : "本地 workerd，不是线上；DO 状态在 .wrangler/state，重启后保留",
     },
-    driver: `node scripts/receipt.mjs ${NAME}`,
+    driver: `node scripts/receipt.mjs ${NAME}${sabotage ? `  # RECEIPT_SABOTAGE=${sabotage.mode}` : ""}`,
     ...scenario,
     checks,
     steps,
@@ -509,23 +572,40 @@ async function main() {
 
   const dir = path.join(process.cwd(), "receipts");
   await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `${NAME}.json`);
+  const file = path.join(dir, sabotage ? `sabotage-${sabotage.mode}-${NAME}.json` : `${NAME}.json`);
   await writeFile(file, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 
   console.log(`\n${ok ? "全部通过" : "有检查没过"} → ${path.relative(process.cwd(), file)}`);
   console.log(`${checks.filter((c) => c.pass).length}/${checks.length} checks\n`);
 
+  if (sabotage) return sabotage.held;
   return ok;
+}
+
+/**
+ * 收尾。对照模式下可能有一个变孤儿并继续占着端口的 workerd，
+ * 必须补一刀，否则下一次跑会被「端口上已经有服务在跑」挡住。
+ */
+function cleanup() {
+  stopDev();
+  if (SABOTAGE === "skip-kill") {
+    try {
+      if (process.platform === "win32") execFileSync("taskkill", ["/F", "/IM", "workerd.exe"], { stdio: "ignore" });
+      else execFileSync("pkill", ["-f", "workerd"], { stdio: "ignore" });
+    } catch {
+      // 本来就没有就算了。
+    }
+  }
 }
 
 try {
   const ok = await main();
-  stopDev();
+  cleanup();
   await waitFor(async () => !(await alive()), 15_000, 300);
   process.exit(ok ? 0 : 2);
 } catch (error) {
   console.error(`\n失败：${error instanceof Error ? error.message : String(error)}`);
-  stopDev();
+  cleanup();
   await sleep(1500);
   process.exit(1);
 }

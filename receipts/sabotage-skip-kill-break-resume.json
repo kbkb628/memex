@@ -1,0 +1,187 @@
+{
+  "kind": "memex.break-resume",
+  "scenario": "break-resume",
+  "observed": true,
+  "passed": false,
+  "sabotage": {
+    "mode": "skip-kill",
+    "expectedRed": [
+      "进程真的死了（端口不通）"
+    ],
+    "actualRed": [
+      "进程真的死了（端口不通）"
+    ],
+    "held": true,
+    "missing": [],
+    "extra": []
+  },
+  "when": "2026-11-06T09:56:49.140Z",
+  "deploy": {
+    "target": "wrangler dev --local :8787",
+    "runtime": "Cloudflare Worker + Durable Object (SQLite), Local",
+    "model": "deepseek/deepseek-flash",
+    "note": "负向对照（skip-kill）：这一份故意是坏的，不能当验收凭据"
+  },
+  "driver": "node scripts/receipt.mjs break-resume  # RECEIPT_SABOTAGE=skip-kill",
+  "request": {
+    "operationId": "receipt-mw4surot",
+    "session": "903",
+    "prompt": "读 https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/ 然后用中文列出三件它明确说 Durable Object 能做到、而普通 Worker 做不到的事。每条一句话，并说明你是从正文哪一段看到的。如果正文没读到，直接说没读到，不要猜。"
+  },
+  "timing": {
+    "submitToKillMs": 3000,
+    "submitToDoneMs": 34744
+  },
+  "transcript": [
+    {
+      "role": "assistant",
+      "text": "读到了。正文开头「However, unlike regular Workers:」那条对比只明说了两点，第三条来自后面的功能段。\n\n1. **用一个全局唯一的名字，从世界任何地方把请求寻址到特定对象，从而在多个客户端之间做协调。**\n   依据：开头「However, unlike regular Workers:」下第一条 bullet。\n\n2. **每个对象自带持久存储，与对象同处一地，因此强一致且访问快；普通 Worker 没有自己的存储。**\n   依据：同一条对比下第二条 bullet（另在「Storage colocated with compute」和「Storage API」段有展开：存储只对该对象可见）。\n\n3. **对象可以被安排在未来某个时刻被唤醒（Alarms API），从而定时或周期性地做事，无需自建调度基础设施。**\n   依据：「Alarms API」段——「allows you to schedule the Durable Object to be woken up at a time in the future」。\n   注意：这条是我的推断性归类——页面把它写成 DO 的 feature，并没有逐字与普通 Worker 做对比。我不确定「普通 Worker 做不到」是否绝对（Cron Triggers 也能定时，只是不带对象级状态）。\n\n补充：单线程执行、内存状态、WebSocket 长连接这几条页面也只描述为 DO 的属性，未明确与 Worker 对举。"
+    }
+  ],
+  "checks": [
+    {
+      "name": "dev server 起来了",
+      "pass": true,
+      "detail": "3838ms"
+    },
+    {
+      "name": "模型已就绪",
+      "pass": true,
+      "detail": "deepseek/deepseek-flash"
+    },
+    {
+      "name": "拿到回执",
+      "pass": true,
+      "detail": "session 903"
+    },
+    {
+      "name": "杀之前已经在跑",
+      "pass": true
+    },
+    {
+      "name": "进程真的死了（端口不通）",
+      "pass": false
+    },
+    {
+      "name": "重启后服务恢复",
+      "pass": true
+    },
+    {
+      "name": "重启后回执还在，且是同一条会话",
+      "pass": true,
+      "detail": "session 903"
+    },
+    {
+      "name": "最终拿到 done",
+      "pass": true,
+      "detail": "done"
+    },
+    {
+      "name": "答案不是空的",
+      "pass": true,
+      "detail": "658 字符"
+    },
+    {
+      "name": "整轮只新增一条会话",
+      "pass": true,
+      "detail": "59 → 60"
+    }
+  ],
+  "steps": [
+    {
+      "step": "start dev server",
+      "at": "2026-11-06T09:56:10.554Z",
+      "ms": 33
+    },
+    {
+      "step": "status before",
+      "at": "2026-11-06T09:56:14.381Z",
+      "ms": 3858,
+      "body": {
+        "model": "deepseek/deepseek-flash",
+        "sessions": 59,
+        "budget": {
+          "day": "2026-11-06",
+          "used": 20,
+          "limit": 20,
+          "manual": 33,
+          "total": 53
+        }
+      }
+    },
+    {
+      "step": "submit",
+      "at": "2026-11-06T09:56:14.463Z",
+      "ms": 3940,
+      "status": 200,
+      "body": {
+        "operationId": "receipt-mw4surot",
+        "session": "903",
+        "accepted": true,
+        "at": 1793958974412
+      }
+    },
+    {
+      "step": "observed running",
+      "at": "2026-11-06T09:56:14.509Z",
+      "ms": 3986,
+      "body": {
+        "operationId": "receipt-mw4surot",
+        "session": "903",
+        "status": "running",
+        "live": true
+      }
+    },
+    {
+      "step": "killed workerd",
+      "at": "2026-11-06T09:56:17.764Z",
+      "ms": 7241,
+      "note": "中止时已跑 3383ms"
+    },
+    {
+      "step": "restart dev server",
+      "at": "2026-11-06T09:56:49.065Z",
+      "ms": 38542
+    },
+    {
+      "step": "op right after restart",
+      "at": "2026-11-06T09:56:49.112Z",
+      "ms": 38589,
+      "body": {
+        "operationId": "receipt-mw4surot",
+        "session": "903",
+        "status": "done",
+        "text": "读到了。正文开头「However, unlike regular Workers:」那条对比只明说了两点，第三条来自后面的功能段。\n\n1. **用一个全局唯一的名字，从世界任何地方把请求寻址到特定对象，从而在多个客户端之间做协调。**\n   依据：开头「However, unlike regular Workers:」下第一条 bullet。\n\n2. **每个对象自带持久存储，与对象同处一地，因此强一致且访问快；普通 Worker 没有自己的存储。**\n   依据：同一条对比下第二条 bullet（另在「Storage colocated with compute」和「Storage API」段有展开：存储只对该对象可见）。\n\n3. **对象可以被安排在未来某个时刻被唤醒（Alarms API），从而定时或周期性地做事，无需自建调度基础设施。**\n   依据：「Alarms API」段——「allows you to schedule the Durable Object to be woken up at a time in the future」。\n   注意：这条是我的推断性归类——页面把它写成 DO 的 feature，并没有逐字与普通 Worker 做对比。我不确定「普通 Worker 做不到」是否绝对（Cron Triggers 也能定时，只是不带对象级状态）。\n\n补充：单线程执行、内存状态、WebSocket 长连接这几条页面也只描述为 DO 的属性，未明确与 Worker 对举。",
+        "at": 1793958974412,
+        "endedAt": 1793959009100,
+        "elapsedMs": 34688
+      }
+    },
+    {
+      "step": "settled",
+      "at": "2026-11-06T09:56:49.125Z",
+      "ms": 38602,
+      "body": {
+        "status": "done",
+        "chars": 658
+      },
+      "note": "34744ms"
+    },
+    {
+      "step": "status after",
+      "at": "2026-11-06T09:56:49.140Z",
+      "ms": 38617,
+      "body": {
+        "sessions": 60,
+        "budget": {
+          "day": "2026-11-06",
+          "used": 20,
+          "limit": 20,
+          "manual": 34,
+          "total": 54
+        }
+      }
+    }
+  ],
+  "notes": []
+}
