@@ -139,12 +139,17 @@ printf '一串随机十六进制' | npx wrangler secret put ACCESS_TOKENS
 | `GET` | `/status` | 用的哪个模型、几条时间线、几个源、收件箱、今天的预算、累计用量（`?spend=fresh` 绕过六十秒缓存） |
 | `GET` | `/patrol` | 上一次巡检做了什么，下一次什么时候醒 |
 | `GET` | `/feeds` | 配了哪些源、下一次什么时候去看 |
-| `POST` | `/feeds` | 加一个源：`{url, want, label?}`。接入时建立基线，不吃历史 |
+| `POST` | `/feeds` | 加一个源：`{url, want, label?, prefilter?}`。接入时建立基线，不吃历史 |
+| `POST` | `/feeds/update` | 调一个源：`{id, want?, prefilter?}`。`prefilter` 传空表示关掉粗筛 |
 | `POST` | `/feeds/remove` | 删一个源：`{id}` |
 | `GET` | `/inbox` | 它替你看来的东西。`?all=1` 连跳过的、失败的一起给 |
 | `POST` | `/inbox/read` | 标为已读：`{id}` 或 `{all:true}` |
 | `GET` | `/ingest` | 上一轮看了几个源、发现几条新的、预算还剩多少 |
 | `POST` | `/ingest/run` | 立刻看一轮，不用等 3 小时（和自动那轮走同一个函数） |
+
+**粗筛（`prefilter`）是可选的。** 它是一串词：抓取之后先用标题、链接、摘要开头过一遍，一个都没命中的连模型都不喂——不建任务、不占额度、不进收件箱，只在 `/ingest` 里报个数加几条样本。泛话题源（比如 HN 首页）配上它，一天能省掉一半以上的调用；已经筛过的源（个人博客、周刊）不该配，配了只会误杀。
+
+改完词表之后跑一次 `node scripts/prefilter-check.mjs`：它拿收件箱里已有的判断当参照回放一遍，**误杀必须是 0**，否则退出码 2。误杀是这套东西里唯一不可见的错误——模型判错了理由还在，粗筛挡错了那条内容根本不会出现。
 
 回执长这样，它由 pi 在提交落盘之后才返回，所以拿到它就意味着任务已经存进去了：
 
@@ -182,13 +187,14 @@ public/
   index.html   单文件界面，故意做得很丑
 scripts/
   receipt.mjs  跑一个真实场景，把每一步写进 receipts/
+  prefilter-check.mjs  用已有的判断结果反过来检验粗筛词表，误杀必须为 0
 receipts/      真跑出来的凭证，不是人写的；sabotage-* 是故意跑红的那份
 _shelved/      归档的旧实现（记忆层、五层提示词、memex 界面）
 docs/decisions/ 架构决策记录
 docs/research/  调研笔记（哪些能借、哪些不能）
 ```
 
-## 九个取舍
+## 十一个取舍
 
 - [001 · 一个 Durable Object，不做 Router / 隔离 Worker 两层](docs/decisions/001-single-durable-object.md)
 - [002 · 记忆分状态，只有人能把它升级为「已确认」](docs/decisions/002-memory-confirmation-state.md) —— 机制仍在，代码已归档
@@ -199,6 +205,8 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 - [007 · 巡检走 Lifecycle 的 job 队列，不碰 alarm](docs/decisions/007-patrol-via-lifecycle-jobs.md)
 - [008 · 第一个工具是 fetch_url，而且它是只读的](docs/decisions/008-fetch-url-is-read-only.md)
 - [009 · 输入源只负责发现，判断交给任务；跳过必须留痕](docs/decisions/009-feeds-and-budget.md)
+- [010 · 开箱就有三个源，但基线一条都不提交](docs/decisions/010-default-feeds.md)
+- [011 · 粗筛放在模型之前，因为它错不起](docs/decisions/011-prefilter-before-model.md)
 
 ## 验到哪儿了
 
@@ -229,6 +237,8 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | **加源不吃历史** | 接入一个有 20 条的源 → `baseline: 20`，立刻跑一轮 → `fresh: 0`，预算仍是 0 |
 | **只提交真正新的** | 源从 3 条变 5 条 → `fresh: 2, submitted: 2`，原有 3 条一条没动 |
 | **跳过留痕** | `?all=1` 里能看到被判 SKIP 的条目和它的理由，而不是「收件箱是空的」 |
+| **粗筛不误杀** | 15 条已有判断回放 → 误杀 0、放行且有关 5、白放 4、正确挡掉 6，省掉 40% 的调用 → [receipts/prefilter.json](receipts/prefilter.json)，重跑用 `node scripts/prefilter-check.mjs` |
+| **粗筛真的省下调用** | 一天 11 条新的 → `prefiltered: 9, submitted: 2`，预算只从 20 涨到 22；下一轮 `fresh: 0`（挡掉的已记进 seen） |
 | **一个任务一个会话** | 见下 |
 | **跑到一半被杀，重启后跑完** | 见下 |
 | **带工具的任务被杀，重启后跑完** | 见下，且答案里有三页真实原文 |

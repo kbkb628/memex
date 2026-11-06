@@ -1,0 +1,105 @@
+{
+  "kind": "memex.prefilter",
+  "when": "2026-11-06T11:24:16.967Z",
+  "passed": true,
+  "replayed": 16,
+  "counted": {
+    "kill": 0,
+    "keep": 5,
+    "waste": 4,
+    "good": 6
+  },
+  "savedPercent": 40,
+  "feeds": [
+    {
+      "label": "Cloudflare 博客",
+      "prefilterCount": 0
+    },
+    {
+      "label": "HN 首页",
+      "prefilterCount": 62
+    },
+    {
+      "label": "阮一峰的网络日志",
+      "prefilterCount": 0
+    }
+  ],
+  "kill": [],
+  "keep": [
+    {
+      "title": "App Store 2026 in numbers: AI, pricing, abandoned apps",
+      "link": "https://obelisk.club/research/app-store-2026",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "I struggle to believe that AI R&D is ingenious",
+      "link": "https://www.lesswrong.com/posts/DALNiKBjMGMF8grme/arjun-panickssery-s-shortform?commentId=fJtaHHHfx45tD7BSL",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Inkling 2 Small",
+      "link": "https://thinkingmachines.ai/news/inkling-2-small/",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Tencent Launches Hy4, One of the Leading Open-Source AI Models",
+      "link": "https://www.tencent.com/tencent-launches-hy4-joining-the-ranks-of-the-worlds-leading-open-source-ai-models/",
+      "feed": "HN 首页",
+      "hits": [
+        "ai",
+        "models"
+      ]
+    },
+    {
+      "title": "The Hackintosh Reborn",
+      "link": "https://www.naut.ca/blog/2026/11/05/the-hackintosh-reborn-with-ai/",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    }
+  ],
+  "waste": [
+    {
+      "title": "Nvidia Kubernetes Engine (NVKE)",
+      "link": "https://github.com/dsx-ai-factory/nvke",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Cuban: Facebook knowingly runs AI deepfake scam ads; docs say $16B fraud revenue",
+      "link": "https://finance.yahoo.com/technology/ai/articles/mark-cuban-says-facebook-knowingly-213000020.html",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Claude Code sends your email address to websites",
+      "link": "https://github.com/anthropics/claude-code/issues/107757",
+      "feed": "HN 首页",
+      "hits": [
+        "claude"
+      ]
+    },
+    {
+      "title": "Hungary: Communist-era files released, up to 60k former agents revealed",
+      "link": "https://www.euronews.com/2026/11/04/hungary-communist-era-files-opened-up-to-60000-former-agents-revealed",
+      "feed": "HN 首页",
+      "hits": [
+        "agents"
+      ]
+    }
+  ]
+}
