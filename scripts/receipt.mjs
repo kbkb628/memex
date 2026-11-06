@@ -13,6 +13,7 @@
  * 用法：
  *   node scripts/receipt.mjs break-resume
  *   node scripts/receipt.mjs idempotent
+ *   node scripts/receipt.mjs spend
  *
  * 环境变量：
  *   PORT=8787            本地端口
@@ -284,6 +285,69 @@ async function scenarioIdempotent() {
   };
 }
 
+/**
+ * 用量：跑一个任务前后，累计 token 和钱要跟着涨，而六十秒缓存期内不许重算。
+ *
+ * 两条一起验，是因为它们互相牵制：只验「涨了」看不出缓存是否生效，
+ * 只验「缓存命中」会把一个永远不更新的死数字也判成通过。
+ */
+async function scenarioSpend() {
+  const operationId = `receipt-${Date.now().toString(36)}`;
+
+  const before = await fetch(`${BASE}/status?spend=fresh`).then((r) => r.json());
+  step("spend before", { body: before.spend });
+  check("用量账本存在", !!before.spend, before.spend?.scope);
+  check("口径写明是累计", before.spend?.scope === "lifetime", String(before.spend?.scope));
+
+  const cached = await status();
+  step("status again", { body: { at: cached.spend?.at, tokens: cached.spend?.tokens } });
+  check("缓存期内不重算（同一份账）", cached.spend?.at === before.spend?.at);
+
+  const submitted = await submitTask(operationId, "用一句话回答：一年有多少个月？不要调用任何工具。");
+  step("submit", { status: submitted.httpStatus, body: submitted.body });
+  check("任务被接受", submitted.httpStatus === 200 && submitted.body.accepted === true);
+
+  const final = await waitSettled(operationId);
+  step("settled", { body: final ? { status: final.status, chars: final.text?.length ?? 0 } : null });
+  check("任务跑完", final?.status === "done", final?.status ?? "timeout");
+
+  // 关键一条：任务已经跑完了，但缓存没过期，所以这时候读到的必须还是旧账。
+  // 如果这里就变了，说明缓存没起作用，页面每分钟轮询都在扫全表。
+  const stale = await status();
+  step("status after task (cached)", { body: { at: stale.spend?.at, tokens: stale.spend?.tokens } });
+  check(
+    "缓存期内仍是旧账（说明没有每次都重算）",
+    stale.spend?.tokens === before.spend?.tokens,
+    `${before.spend?.tokens} → ${stale.spend?.tokens}`,
+  );
+
+  const fresh = await fetch(`${BASE}/status?spend=fresh`).then((r) => r.json());
+  step("spend fresh", { body: fresh.spend });
+  check(
+    "强制重算后 token 涨了",
+    (fresh.spend?.tokens ?? 0) > (before.spend?.tokens ?? 0),
+    `${before.spend?.tokens} → ${fresh.spend?.tokens}（+${(fresh.spend?.tokens ?? 0) - (before.spend?.tokens ?? 0)}）`,
+  );
+  check(
+    "钱跟着 token 一起涨",
+    (fresh.spend?.cost ?? 0) >= (before.spend?.cost ?? 0),
+    `$${(before.spend?.cost ?? 0).toFixed(6)} → $${(fresh.spend?.cost ?? 0).toFixed(6)}`,
+  );
+  check(
+    "账记在具体模型名下",
+    Array.isArray(fresh.spend?.models) && fresh.spend.models.some((m) => m.tokens > 0),
+    (fresh.spend?.models ?? []).map((m) => `${m.name}=${m.tokens}`).join(", ") || "(空)",
+  );
+  check("没有假字段：工具用量是空数组而不是编出来的数", Array.isArray(fresh.spend?.tools));
+
+  return {
+    request: { operationId, session: String(submitted.body.session) },
+    before: before.spend,
+    after: fresh.spend,
+    transcript: final?.text ? [{ role: "assistant", text: final.text.slice(0, 4000) }] : [],
+  };
+}
+
 // ---------------------------------------------------------------- runner
 
 async function main() {
@@ -306,7 +370,14 @@ async function main() {
   });
   check("模型已就绪", before.ready === true, before.model);
 
-  const scenario = NAME === "idempotent" ? await scenarioIdempotent() : await scenarioBreakResume();
+  const scenarios = {
+    "break-resume": scenarioBreakResume,
+    idempotent: scenarioIdempotent,
+    spend: scenarioSpend,
+  };
+  const run = scenarios[NAME];
+  if (!run) throw new Error(`没有这个场景：${NAME}（可选 ${Object.keys(scenarios).join(" / ")}）`);
+  const scenario = await run();
 
   const after = await status();
   step("status after", { body: { sessions: after.sessions, budget: after.budget } });

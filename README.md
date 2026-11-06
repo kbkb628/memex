@@ -105,7 +105,7 @@ npm run deploy
 |---|---|---|
 | `POST` | `/submit` | 发一条消息，立刻返回回执，模型还没开始跑 |
 | `GET` | `/op?id=` | 查这张回执：`queued` / `running` / `parked` / `done` / `unanswered` |
-| `GET` | `/status` | 用的哪个模型、几条时间线、几个源、收件箱和今天的预算 |
+| `GET` | `/status` | 用的哪个模型、几条时间线、几个源、收件箱、今天的预算、累计用量（`?spend=fresh` 绕过六十秒缓存） |
 | `GET` | `/patrol` | 上一次巡检做了什么，下一次什么时候醒 |
 | `GET` | `/feeds` | 配了哪些源、下一次什么时候去看 |
 | `POST` | `/feeds` | 加一个源：`{url, want, label?}`。接入时建立基线，不吃历史 |
@@ -171,7 +171,7 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 
 ## 验到哪儿了
 
-诚实分档，不掺水。**带链接的那两条不是描述，是 `node scripts/receipt.mjs <场景>` 当场跑出来的文件**——脚本自己拉起 wrangler dev，自己在半路杀掉 workerd，再把服务和检查跑完，把每一步的耗时和结果写进 `receipts/`。
+诚实分档，不掺水。**带链接的那三条不是描述，是 `node scripts/receipt.mjs <场景>` 当场跑出来的文件**——脚本自己拉起 wrangler dev，自己在半路杀掉 workerd，再把服务和检查跑完，把每一步的耗时和结果写进 `receipts/`。
 
 | 验过 | 怎么验的 |
 |---|---|
@@ -179,6 +179,7 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
 | **断电续跑** | 真杀 `workerd`（核过端口确实不通），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（9/9） |
+| **用量算得出来** | 跑一个任务后累计 token 从 135973 涨到 136482（+509），钱从 $0.042725 到 $0.042805；同一份账在六十秒缓存期内两次读到的 `at` 相同 → [receipts/spend.json](receipts/spend.json)（13/13） |
 | 野 id 不挂住 | `GET /op?id=nope` → 404（先查 pending 再 wait，不会把请求挂在对象里） |
 | **自己会醒** | 排期 60 秒后，不发任何请求干等 75 秒，`/patrol` 里出现了这次巡检的结果 |
 | **加源不吃历史** | 接入一个有 20 条的源 → `baseline: 20`，立刻跑一轮 → `fresh: 0`，预算仍是 0 |

@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
@@ -74,6 +75,35 @@ const FIRST_INGEST_MS = 90 * 1000;
 const DAILY_CALLS = 20;
 const MAX_PER_RUN = 5;
 
+/**
+ * 用量缓存多久。
+ *
+ * `usage()` 是 pi 的账本，它要把每条会话的用量文档各读一遍才算得出来。
+ * 页面每分钟轮询一次 `/status`，不缓存的话，一次刷新就是几百次存储读，
+ * 而且这个数会随会话数一起涨。缓存六十秒，刷新就等于免费。
+ */
+const SPEND_CACHE_MS = 60_000;
+
+/** 一个桶的用量（某个模型，或被工具花掉的）。 */
+type SpendBucket = { name: string; tokens: number; cost: number };
+
+/**
+ * 用量总账。
+ *
+ * 口径是「从第一条会话到现在」，**不是今天**。预算那个数才是按天的，
+ * 两个数并排放时必须各自标清楚，否则读的人会以为是同一天的账。
+ */
+type Spend = {
+  at: number;
+  tokens: number;
+  /** provider 报价算出来的钱，单位美元。没有报价的 provider 报 0，不是「免费」。 */
+  cost: number;
+  models: SpendBucket[];
+  tools: SpendBucket[];
+  /** 算不出来时的原因。有它就说明下面那几个数不作数，而不是「花了 0」。 */
+  error?: string;
+};
+
 type InboxItem = {
   /** 提交时用的 operationId，也是这张收件条目的 id。 */
   id: string;
@@ -132,6 +162,19 @@ type PatrolReport = {
   stuck: string[];
 };
 
+/**
+ * 把一个 Usage 折算成两个数：token 和钱。
+ *
+ * 不用 `usage.totalTokens` 直接当准 —— 有些 provider 只报 input/output，
+ * 那个字段是 0。所以优先用它，没有就自己加。
+ * `cost` 同理：没有报价时它是 0，这在下面要和「真的免费」区分开。
+ */
+function tally(usage: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } } | undefined) {
+  if (!usage) return { tokens: 0, cost: 0 };
+  const sum = (usage.input ?? 0) + (usage.output ?? 0);
+  return { tokens: usage.totalTokens || sum, cost: usage.cost?.total ?? 0 };
+}
+
 export class Home extends DurableObject<Env> {
   private readonly setup = buildModels(this.env);
   private readonly registry = createRegistry();
@@ -165,7 +208,9 @@ export class Home extends DurableObject<Env> {
 
       if (path === "/submit" && request.method === "POST") return await this.submit(request);
       if (path === "/op" && request.method === "GET") return await this.op(url.searchParams.get("id"));
-      if (path === "/status" && request.method === "GET") return await this.status();
+      // `?spend=fresh` 绕过六十秒缓存：核对账目时不想等缓存过期。
+      if (path === "/status" && request.method === "GET")
+        return await this.status(url.searchParams.get("spend") === "fresh");
       if (path === "/patrol" && request.method === "GET") return await this.patrolReport();
       if (path === "/feeds" && request.method === "GET") return await this.listFeeds();
       if (path === "/feeds" && request.method === "POST") return await this.addFeed(request);
@@ -746,11 +791,63 @@ export class Home extends DurableObject<Env> {
     return Response.json(await this.harness.wait(id, { session }));
   }
 
-  private async status(): Promise<Response> {
+  /**
+   * 算一次用量。默认读缓存，`fresh` 强制重算。
+   *
+   * pi 的 `usage()` 把每条会话里各模型的用量加起来，只增不减，所以它答的是
+   * 「一共花了多少」，答不了「今天花了多少」—— 按天拆分需要每天存一份快照做差，
+   * 那件事等真有账单上的需要再说，现在宁可少说，也不编一个「今日 token」。
+   */
+  private async spend(fresh = false): Promise<Spend> {
+    const cached = await this.ctx.storage.get<Spend>("spend:cache");
+    if (!fresh && cached && Date.now() - cached.at < SPEND_CACHE_MS) return cached;
+
+    const empty: Spend = { at: Date.now(), tokens: 0, cost: 0, models: [], tools: [] };
+    let state;
+    try {
+      state = await (await this.harness.pi()).usage(BACKGROUND_CONTEXT);
+    } catch (error) {
+      // 算不出来就说算不出来。返回 0 会被读成「没花过钱」，那是假话。
+      const why = error instanceof Error ? error.message : String(error);
+      const failed: Spend = { ...empty, error: why };
+      await this.ctx.storage.put("spend:cache", failed);
+      return failed;
+    }
+
+    const total = { tokens: 0, cost: 0 };
+    const models: SpendBucket[] = [];
+    for (const [name, usage] of Object.entries(state.models ?? {})) {
+      const t = tally(usage);
+      total.tokens += t.tokens;
+      total.cost += t.cost;
+      models.push({ name, ...t });
+    }
+    const tools: SpendBucket[] = [];
+    for (const [name, usage] of Object.entries(state.tools ?? {})) {
+      const t = tally(usage);
+      total.tokens += t.tokens;
+      total.cost += t.cost;
+      tools.push({ name, ...t });
+    }
+
+    const spend: Spend = {
+      at: empty.at,
+      tokens: total.tokens,
+      cost: total.cost,
+      // 大的排前面：一眼看到的是花得最多的那个模型，而不是字母序第一个。
+      models: models.sort((a, b) => b.tokens - a.tokens),
+      tools: tools.sort((a, b) => b.tokens - a.tokens),
+    };
+    await this.ctx.storage.put("spend:cache", spend);
+    return spend;
+  }
+
+  private async status(fresh = false): Promise<Response> {
     const sessions = await this.harness.sessions.list();
     const feeds = await this.readFeeds();
     const inbox = await this.ctx.storage.list<InboxItem>({ prefix: "inbox:" });
     const day = localDay();
+    const spend = await this.spend(fresh);
     return Response.json({
       model: this.setup.label,
       ready: this.setup.ready,
@@ -761,8 +858,19 @@ export class Home extends DurableObject<Env> {
         pending: [...inbox.values()].filter((i) => i.state === "pending").length,
       },
       budget: {
+        day,
         used: (await this.ctx.storage.get<number>(`budget:${day}`)) ?? 0,
         limit: DAILY_CALLS,
+      },
+      spend: {
+        /** 说明口径：这是累计，不是今天。字段名写在这里，是为了让调用方不用猜。 */
+        scope: "lifetime" as const,
+        at: spend.at,
+        tokens: spend.tokens,
+        cost: spend.cost,
+        models: spend.models,
+        tools: spend.tools,
+        ...(spend.error ? { error: spend.error } : {}),
       },
       ...(this.setup.hint ? { hint: this.setup.hint } : {}),
     });

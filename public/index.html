@@ -12,9 +12,9 @@
   input { margin-top: 6px; }
   button { font: inherit; font-size: 14px; padding: 6px 16px; margin-top: 8px; border: 1px solid #999; background: #fff; border-radius: 6px; cursor: pointer; }
   button:disabled { color: #aaa; border-color: #ddd; cursor: default; }
-  .meta { font: 12px ui-monospace, SFMono-Regular, monospace; color: #999; }
+  .meta { font: 12px ui-monospace, SFMono-Regular, monospace; color: #999; margin-left: auto; text-align: right; }
   section { margin-bottom: 36px; }
-  .sec-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #e5e5e5; padding-bottom: 6px; margin-bottom: 4px; }
+  .sec-head { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #e5e5e5; padding-bottom: 6px; margin-bottom: 4px; }
   .sec-head span:first-child { font-size: 13px; }
   #ops { margin-top: 28px; }
   .op { padding: 14px 0; border-top: 1px solid #e5e5e5; }
@@ -65,6 +65,11 @@
 
   const $ = (sel) => document.querySelector(sel);
 
+  // 四万两千 token 写成「4.2 万」，一个数字能读完才好比较。
+  const tokens = (n) => (n >= 10000 ? (n / 10000).toFixed(1) + " 万" : String(n));
+  // 一次任务常常是几厘钱，四舍五入到分就全变成 0 了，所以留四位。
+  const money = (usd) => (usd > 0 ? "（$" + usd.toFixed(4) + "）" : "");
+
   // ── 收件箱：它自己看来的东西 ──────────────────────────────
   async function loadInbox() {
     let body;
@@ -81,6 +86,12 @@
     if (typeof body.unread === "number") parts.push(body.unread + " 条值得看");
     if (typeof body.skipped === "number") parts.push("跳过 " + body.skipped);
     if (st.budget) parts.push("今天用了 " + st.budget.used + "/" + st.budget.limit + " 次");
+    // 口径写死成「累计」：预算那个数是按天的，这个数是从头算的，混着说就是撒谎。
+    // 算不出来就明说，不要不吭声 —— 不吭声会被读成「没花过钱」。
+    if (st.spend && st.spend.error) parts.push("用量读不到");
+    else if (st.spend && st.spend.tokens > 0) {
+      parts.push("累计 " + tokens(st.spend.tokens) + " token" + money(st.spend.cost));
+    }
     $("#inbox-meta").textContent = parts.join(" · ") || "还没有源";
 
     const box = $("#inbox");
