@@ -44,7 +44,22 @@ import {
 const ROOT = "1";
 
 /** 写在自己库里的一份索引：存过的 id 才认得，免得拿一个野 id 去 wait 挂在对象里。 */
-type Note = { id: string; text: string; at: number; session: string };
+type Note = {
+  id: string;
+  text: string;
+  /** 受理时间：拿到回执的那一刻，模型还没开始跑。 */
+  at: number;
+  session: string;
+  /**
+   * 第一次看到它结算的时间。
+   *
+   * 有一点必须说清：它是「我们第一次发现它跑完了」，不是「它跑完的瞬间」。
+   * 两者的差是轮询间隔 —— 页面轮询最多差一秒，输入源那边的任务可能差三小时。
+   * 所以对外只说 `elapsedMs`（受理到发现），不说「耗时」。**宁可说得保守，
+   * 也不要让一个看着像精确值的数字撒谎。**
+   */
+  endedAt?: number;
+};
 
 /**
  * 输入源：每 3 小时醒一次，看订阅源有没有新的。
@@ -488,6 +503,11 @@ export class Home extends DurableObject<Env> {
         }
 
         settled++;
+        // 和 /op 共用同一个时间戳：谁先看到结算谁盖，后看到的沿用。
+        const opNote = await this.ctx.storage.get<Note>(`op:${item.id}`);
+        if (opNote && !opNote.endedAt) {
+          await this.ctx.storage.put<Note>(`op:${item.id}`, { ...opNote, endedAt: Date.now() });
+        }
         if (!note) {
           await this.ctx.storage.put<InboxItem>(key, { ...item, state: "failed", note: "任务没留下任何输出。" });
           continue;
@@ -788,7 +808,11 @@ export class Home extends DurableObject<Env> {
     // 「它落在哪条时间线上」，而这个信息在提交的回执里本来就有。
     if (live) return Response.json({ operationId: id, session, status: live.status, live: true });
 
-    return Response.json(await this.harness.wait(id, { session }));
+    const result = await this.harness.wait(id, { session });
+    // 结算时间只盖一次。这条路径和 settle() 都会走到，谁先看到谁盖。
+    const endedAt = note.endedAt ?? Date.now();
+    if (!note.endedAt) await this.ctx.storage.put<Note>(`op:${id}`, { ...note, endedAt });
+    return Response.json({ ...result, at: note.at, endedAt, elapsedMs: endedAt - note.at });
   }
 
   /**
@@ -848,6 +872,15 @@ export class Home extends DurableObject<Env> {
     const inbox = await this.ctx.storage.list<InboxItem>({ prefix: "inbox:" });
     const day = localDay();
     const spend = await this.spend(fresh);
+
+    // 今天一共提交了几条。`budget:${day}` 只数自动提交（输入源），
+    // 而页面上那个输入框发的消息从不进这个数 —— 于是「今天用了 3/20 次」
+    // 会漏掉你自己发的那些，读起来像在说总账。这里把两者分开，
+    // 总数从回执记录数出来，自动数从预算记录取，差就是手动。
+    const notes = await this.ctx.storage.list<Note>({ prefix: "op:" });
+    const today = [...notes.values()].filter((n) => localDay(n.at) === day).length;
+    const auto = (await this.ctx.storage.get<number>(`budget:${day}`)) ?? 0;
+
     return Response.json({
       model: this.setup.label,
       ready: this.setup.ready,
@@ -859,8 +892,12 @@ export class Home extends DurableObject<Env> {
       },
       budget: {
         day,
-        used: (await this.ctx.storage.get<number>(`budget:${day}`)) ?? 0,
+        /** 自动提交（输入源）用掉的，这个数才有上限。 */
+        used: auto,
         limit: DAILY_CALLS,
+        /** 你今天自己发的。不受上限拦，但也别假装它不存在。 */
+        manual: Math.max(today - auto, 0),
+        total: today,
       },
       spend: {
         /** 说明口径：这是累计，不是今天。字段名写在这里，是为了让调用方不用猜。 */

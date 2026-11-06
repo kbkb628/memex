@@ -89,13 +89,29 @@ npm run dev
 
 `worker-configuration.d.ts` 不进仓库（它是 `wrangler types` 生成的，60 多万字节）。`npm run dev` 首次启动会自动生成它；如果只想跑类型检查，先 `npm run types` 一次，否则 `tsc` 会报找不到类型定义。
 
-部署到自己的账号：
+部署到自己的账号（免费版就够，别加 `limits.cpu_ms`——那需要付费计划，而且也用不上：这活儿的时间全花在等模型上）：
 
 ```bash
 npx wrangler login
 npx wrangler secret put DEEPSEEK_API_KEY
 npm run deploy
 ```
+
+第一次部署可能报 `You need a workers.dev subdomain`。去 dashboard 打开一次 Workers & Pages 就会自动建，或者直接调 API：
+
+```bash
+curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/workers/subdomain" \
+  -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d '{"subdomain":"你的名字"}'
+```
+
+**部署后第一件事是设 `ACCESS_TOKENS`**，否则任何拿到地址的人都能用你的 key 发任务（`/submit` 没有闸门，那是你自己打字的入口）：
+
+```bash
+printf '一串随机十六进制' | npx wrangler secret put ACCESS_TOKENS
+```
+
+设好之后，打开 `https://<worker>.workers.dev/?token=<那个值>` 一次就行：页面会把它记进 localStorage，然后把地址栏那一截抹掉。没 token 时首页照样能打开（它只是 HTML），但所有数据接口返回 401。
 
 想把这个实例发给别人试，设 `ACCESS_TOKENS=a,b`：每个 token 派生一个独立的 Durable Object，两个人共用一个 Worker 但看不到彼此的记录，不建用户表。
 
@@ -104,7 +120,7 @@ npm run deploy
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | `POST` | `/submit` | 发一条消息，立刻返回回执，模型还没开始跑 |
-| `GET` | `/op?id=` | 查这张回执：`queued` / `running` / `parked` / `done` / `unanswered` |
+| `GET` | `/op?id=` | 查这张回执：`queued` / `running` / `parked` / `done` / `unanswered`，附 `at` `endedAt` `elapsedMs` |
 | `GET` | `/status` | 用的哪个模型、几条时间线、几个源、收件箱、今天的预算、累计用量（`?spend=fresh` 绕过六十秒缓存） |
 | `GET` | `/patrol` | 上一次巡检做了什么，下一次什么时候醒 |
 | `GET` | `/feeds` | 配了哪些源、下一次什么时候去看 |
@@ -179,7 +195,9 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
 | **断电续跑** | 真杀 `workerd`（核过端口确实不通），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（9/9） |
-| **用量算得出来** | 跑一个任务后累计 token 从 135973 涨到 136482（+509），钱从 $0.042725 到 $0.042805；同一份账在六十秒缓存期内两次读到的 `at` 相同 → [receipts/spend.json](receipts/spend.json)（13/13） |
+| **用量算得出来** | 跑一个任务后累计 token 从 137494 涨到 138005（+511），钱从 $0.042963 到 $0.043045；同一份账在六十秒缓存期内两次读到的 `at` 相同 → [receipts/spend.json](receipts/spend.json)（18/18） |
+| **回执答得出跑了多久** | `elapsedMs` 有值，且同一条回执问两次 `endedAt` 不变（只盖一次） → 同上 |
+| **预算不混账** | 同一次检查里，今天总数从 46 涨到 47，而「自动」那一栏 17 → 17 不动 → 同上 |
 | 野 id 不挂住 | `GET /op?id=nope` → 404（先查 pending 再 wait，不会把请求挂在对象里） |
 | **自己会醒** | 排期 60 秒后，不发任何请求干等 75 秒，`/patrol` 里出现了这次巡检的结果 |
 | **加源不吃历史** | 接入一个有 20 条的源 → `baseline: 20`，立刻跑一轮 → `fresh: 0`，预算仍是 0 |
@@ -303,6 +321,8 @@ GET /patrol → last.at 落在到期时间之后 61ms，scanned: 15，next 推�
 这两个数字不是省钱手段。它逼着这个东西承认「我一天只打算跟你说几件事」，于是它必须挑，不能搬运。一个不设上限的订阅 agent，三天就会变成你最不想打开的那个 App。
 
 超了就在报告里如实写「今天 20 次用完了，剩下的等明天」，而不是悄悄少做一点。
+
+这道闸门只管**它自己去看**的那部分。你在输入框里手动发的消息不受这 20 次限制——那是你明确要的东西，不该被一个自动配额挡住。但两边都要记账：`/status` 的 `budget` 里 `used` 是自动提交数（有上限的那个），`total` 是今天全部提交数，差就是手动。第一版只有一个数，于是页面写着「今天 17/20 次」而实际已经提交了 46 次。
 
 ### 三条踩出来的规矩
 

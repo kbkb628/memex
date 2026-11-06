@@ -4,10 +4,17 @@
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // 模型名不是密钥，写在这里让 fork 的人不用猜。真密钥走
+  // `wrangler secret put DEEPSEEK_API_KEY`，不进仓库。
+  "vars": { "AGENT_MODEL": "deepseek-flash" },
   // 静态 UI。assets 先于 Worker 命中，所以 / 直接出 index.html，
   // /ask、/memory 这些没有对应文件的路径再落到 Worker。
   "assets": { "directory": "./public" },
-  "limits": { "cpu_ms": 300000 },
+  // 这里原本写了 "limits": { "cpu_ms": 300000 }，部署时被拒：
+  // 「CPU limits are not supported for the Free plan」。
+  // 而且它本来也不该在这一版里：任务的时间几乎全花在等模型返回上，
+  // CPU 用得极少，免费版的 30 秒 CPU 上限绰绰有余。
+  // 留在配置里，等于要求一个想 fork 的人先付费——这跟我们「一个免费账号就能跑」相冲。
   // Workers AI binding 默认关闭。
   // 开着它，`wrangler dev` 会被强制切到 remote 模式，而 remote 模式要求该账号
   // 先注册 workers.dev 子域名，否则报 "Failed to start the remote proxy session"。

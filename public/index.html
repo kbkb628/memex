@@ -65,6 +65,27 @@
 
   const $ = (sel) => document.querySelector(sel);
 
+  // ── token：服务端配了 ACCESS_TOKENS 之后，所有请求都要带 ──────────
+  // 从 ?token= 取一次就记住，然后把地址栏那一截抹掉 —— 免得截图、录屏、
+  // 浏览器历史里到处躺着它。没配 token 的部署（本地 dev）走单用户模式，这里为空，
+  // 不带 Authorization 头，行为和以前完全一样。
+  {
+    const params = new URLSearchParams(location.search);
+    const fromUrl = params.get("token");
+    if (fromUrl) {
+      localStorage.setItem("agent.token", fromUrl);
+      params.delete("token");
+      const rest = params.toString();
+      history.replaceState(null, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
+    }
+  }
+  const TOKEN = localStorage.getItem("agent.token") || "";
+  const api = (path, init = {}) =>
+    fetch(path, {
+      ...init,
+      headers: { ...(init.headers || {}), ...(TOKEN ? { authorization: "Bearer " + TOKEN } : {}) },
+    });
+
   // 四万两千 token 写成「4.2 万」，一个数字能读完才好比较。
   const tokens = (n) => (n >= 10000 ? (n / 10000).toFixed(1) + " 万" : String(n));
   // 一次任务常常是几厘钱，四舍五入到分就全变成 0 了，所以留四位。
@@ -74,18 +95,31 @@
   async function loadInbox() {
     let body;
     try {
-      body = await (await fetch("/inbox")).json();
+      const res = await api("/inbox");
+      // 401 和「连不上」是两件事：一个是门锁着，一个是网络不通。
+      // 混成一句「连不上」会让人去查网络，而问题其实在这个链接上。
+      if (res.status === 401) {
+        $("#inbox-meta").textContent = "这个链接没有 token";
+        return;
+      }
+      body = await res.json();
     } catch {
       $("#inbox-meta").textContent = "连不上";
       return;
     }
     if (body.error) { $("#inbox-meta").textContent = body.error; return; }
 
-    const st = await (await fetch("/status")).json().catch(() => ({}));
+    const st = await api("/status").then((r) => r.json()).catch(() => ({}));
     const parts = [];
     if (typeof body.unread === "number") parts.push(body.unread + " 条值得看");
     if (typeof body.skipped === "number") parts.push("跳过 " + body.skipped);
-    if (st.budget) parts.push("今天用了 " + st.budget.used + "/" + st.budget.limit + " 次");
+    if (st.budget) {
+      const b = st.budget;
+      // 上限只拦"它自己看"的部分，所以分开说：前面是你今天真实提交的总数，
+      // 括号里那组才是闸门。混成一个「5/20」会让手动发的消息无处安放。
+      const n = typeof b.total === "number" ? b.total : b.used;
+      parts.push("今天 " + n + " 次 · 自动 " + b.used + "/" + b.limit);
+    }
     // 口径写死成「累计」：预算那个数是按天的，这个数是从头算的，混着说就是撒谎。
     // 算不出来就明说，不要不吭声 —— 不吭声会被读成「没花过钱」。
     if (st.spend && st.spend.error) parts.push("用量读不到");
@@ -123,7 +157,7 @@
       btn.textContent = "知道了";
       btn.addEventListener("click", async () => {
         btn.disabled = true;
-        await fetch("/inbox/read", {
+        await api("/inbox/read", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ id: item.id }),
@@ -155,7 +189,7 @@
     $("#feed-add").disabled = true;
     $("#feed-msg").textContent = "正在读这个源…";
 
-    const res = await fetch("/feeds", {
+    const res = await api("/feeds", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url, want }),
@@ -163,6 +197,7 @@
     $("#feed-add").disabled = false;
 
     if (!res) { $("#feed-msg").textContent = "网络失败"; return; }
+    if (res.status === 401) { $("#feed-msg").textContent = "这个链接没有 token"; return; }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) { $("#feed-msg").textContent = body.error || ("失败 " + res.status); return; }
 
@@ -194,7 +229,8 @@
   async function poll(id) {
     let body;
     try {
-      const res = await fetch("/op?id=" + encodeURIComponent(id));
+      const res = await api("/op?id=" + encodeURIComponent(id));
+      if (res.status === 401) return show(id, "这个链接没有 token");
       if (res.status === 404) return show(id, "服务端不认识这张回执（库可能被清过）");
       body = await res.json();
     } catch {
@@ -220,13 +256,14 @@
     show(operationId, "已受理，模型还没开始跑");
     $("#in").value = "";
 
-    const res = await fetch("/submit", {
+    const res = await api("/submit", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, operationId }),
     }).catch(() => null);
 
     if (!res) return show(operationId, "网络失败，这张回执还留着，刷新会继续查");
+    if (res.status === 401) return show(operationId, "这个链接没有 token");
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       return show(operationId, err.hint || err.error || "提交失败 " + res.status);

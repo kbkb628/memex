@@ -298,6 +298,14 @@ async function scenarioSpend() {
   step("spend before", { body: before.spend });
   check("用量账本存在", !!before.spend, before.spend?.scope);
   check("口径写明是累计", before.spend?.scope === "lifetime", String(before.spend?.scope));
+  // 上限只拦自动提交，所以 status 必须把「今天总共几条」和「其中自动几条」分开。
+  // 只报一个数的话，手动发的消息就无处安放，读起来像在说总账。
+  check(
+    "预算分得清自动和手动",
+    typeof before.budget?.total === "number" && before.budget.total >= before.budget.used,
+    `今天 ${before.budget?.total} 次（自动 ${before.budget?.used}、手动 ${before.budget?.manual}，上限 ${before.budget?.limit}）`,
+  );
+  const totalBefore = before.budget?.total ?? 0;
 
   const cached = await status();
   step("status again", { body: { at: cached.spend?.at, tokens: cached.spend?.tokens } });
@@ -310,6 +318,20 @@ async function scenarioSpend() {
   const final = await waitSettled(operationId);
   step("settled", { body: final ? { status: final.status, chars: final.text?.length ?? 0 } : null });
   check("任务跑完", final?.status === "done", final?.status ?? "timeout");
+
+  // 回执要能回答「这条跑了多久」。elapsedMs 是受理到发现结算的差，
+  // 不是模型耗时（发现那一刻取决于谁先来问），所以这里只验它存在且为正。
+  check(
+    "回执答得出跑了多久",
+    typeof final?.elapsedMs === "number" && final.elapsedMs > 0,
+    `${final?.elapsedMs}ms`,
+  );
+  const again = await getOp(operationId);
+  check(
+    "再问一次，结算时间不变",
+    again.body?.endedAt !== undefined && again.body.endedAt === final?.endedAt,
+    `${final?.endedAt}`,
+  );
 
   // 关键一条：任务已经跑完了，但缓存没过期，所以这时候读到的必须还是旧账。
   // 如果这里就变了，说明缓存没起作用，页面每分钟轮询都在扫全表。
@@ -339,6 +361,19 @@ async function scenarioSpend() {
     (fresh.spend?.models ?? []).map((m) => `${m.name}=${m.tokens}`).join(", ") || "(空)",
   );
   check("没有假字段：工具用量是空数组而不是编出来的数", Array.isArray(fresh.spend?.tools));
+
+  // 这一次是我们手动提交的：总数该 +1，而「自动」那一栏必须原地不动 ——
+  // 如果它也跟着涨，说明两个计数器其实是同一个，等于又混在一起了。
+  check(
+    "手动提交也计入今天",
+    fresh.budget?.total === totalBefore + 1,
+    `${totalBefore} → ${fresh.budget?.total}`,
+  );
+  check(
+    "自动那一栏没被手动带偏",
+    fresh.budget?.used === before.budget?.used,
+    `${before.budget?.used} → ${fresh.budget?.used}`,
+  );
 
   return {
     request: { operationId, session: String(submitted.body.session) },
