@@ -342,6 +342,36 @@ export function isSkip(text: string): boolean {
 /** 每个源记住最近多少条已处理的条目。 */
 export const SEEN_LIMIT = 300;
 
+/**
+ * 新实例默认带的三个源。
+ *
+ * 为什么要有默认值：空收件箱说明不了任何事。第一次打开看到「还没有配任何源」的人，
+ * 不会去读 README 再回来填三个地址 —— 他直接关了。默认值不是替他做决定，
+ * 是让他第一眼就能看到「它自己醒来判断过」这件事真的发生了。
+ *
+ * `want` 写的是「什么算值得看」，不是关键词。关键词会让模型按字面匹配，
+ * 而好内容往往不用那个词（见 docs/decisions/008）。
+ *
+ * 想换成自己的：删掉它们再加。`cfg:feeds` 一旦存在（哪怕是空数组）就不会再补。
+ */
+export const DEFAULT_FEEDS: { url: string; label: string; want: string }[] = [
+  {
+    url: "https://blog.cloudflare.com/rss/",
+    label: "Cloudflare 博客",
+    want: "Cloudflare 自己的工程实践：新的运行时能力、Durable Objects / Workers 的真实限制和坑、他们踩过的架构问题。不要产品发布、市场活动、客户案例宣传。",
+  },
+  {
+    url: "https://hnrss.org/frontpage",
+    label: "HN 首页",
+    want: "有人真的做出东西、并且讨论得很具体的条目：新的开源项目、工程踩坑记录、架构复盘。不要融资新闻，不要政治和社会话题，不要「XX 要死了」式的感慨。",
+  },
+  {
+    url: "https://www.ruanyifeng.com/blog/atom.xml",
+    label: "阮一峰的网络日志",
+    want: "周刊里提到的具体工具和文章，以及作者对技术趋势的判断。不要纯链接合集，不要工具清单式的罗列。",
+  },
+];
+
 /** 收件箱里最多留多少条，超了删最旧的。 */
 export const INBOX_LIMIT = 200;
 

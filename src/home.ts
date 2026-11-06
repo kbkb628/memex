@@ -7,6 +7,7 @@ import { buildModels } from "./models";
 import { systemExtension } from "./prompts";
 import { webExtension } from "./tools";
 import {
+  DEFAULT_FEEDS,
   fetchFeed,
   hash as hashId,
   INBOX_LIMIT,
@@ -148,6 +149,8 @@ type IngestReport = {
   /** 其中模型判定跳过、因而没进收件箱的条数。 */
   skipped: number;
   budget: { day: string; used: number; limit: number };
+  /** 这一轮有几个源是第一次接上、只记基线不提交的。 */
+  baselined?: number;
   note?: string;
 };
 
@@ -294,6 +297,25 @@ export class Home extends DurableObject<Env> {
         hungTimeoutSeconds: 90,
       });
     }
+
+    await this.ensureDefaultFeeds();
+  }
+
+  /**
+   * 第一次醒来时把默认源装上。
+   *
+   * 只写配置，不联网 —— 这里在每条请求的必经之路上，抓三个源既慢又可能失败。
+   * 基线留给 ingest 补：它发现某个源没有 `seen:` 记录，就把这一轮当成基线，
+   * 全部记为已见、一条都不提交。
+   *
+   * 判断依据是 `cfg:feeds` 存不存在，不是长度。用户把默认源全删了会留下一个
+   * 空数组，那是「我不要这些」的意思，不是「还没初始化」。
+   */
+  private async ensureDefaultFeeds(): Promise<void> {
+    if ((await this.ctx.storage.get<Feed[]>("cfg:feeds")) !== undefined) return;
+    const now = Date.now();
+    const feeds: Feed[] = DEFAULT_FEEDS.map((f) => ({ ...f, id: hashId(f.url), addedAt: now }));
+    await this.ctx.storage.put("cfg:feeds", feeds);
   }
 
   /**
@@ -368,6 +390,7 @@ export class Home extends DurableObject<Env> {
    */
   private async ingest(): Promise<IngestReport> {
     const now = Date.now();
+    await this.ensureDefaultFeeds();
     const feeds = await this.readFeeds();
     const report: IngestReport = {
       at: now,
@@ -423,7 +446,23 @@ export class Home extends DurableObject<Env> {
 
     // 4. 只提交真正新的，且只提交预算内的
     for (const { feed, items } of results) {
-      const seen = new Set((await this.ctx.storage.get<string[]>(`seen:${feed.id}`)) ?? []);
+      const seenRaw = await this.ctx.storage.get<string[]>(`seen:${feed.id}`);
+      // 没有 seen 记录 = 这个源从没接过基线。这一轮只记不发。
+      //
+      // 不这么做的话，一个每天更新 20 条的源在第一次 ingest 时会被当成
+      // 「全是新的」—— 收件箱瞬间被历史条目淹没，当天预算一把烧完，
+      // 而用户还没看到任何一条有用的。addFeed 里有同样的处理，区别只在于
+      // 那边是用户亲手加的、可以立刻联网抓一次；这边是默认源，只能等这一轮。
+      if (seenRaw === undefined) {
+        await this.ctx.storage.put(
+          `seen:${feed.id}`,
+          items.map((i) => i.id).slice(0, SEEN_LIMIT),
+        );
+        report.baselined = (report.baselined ?? 0) + 1;
+        continue;
+      }
+
+      const seen = new Set(seenRaw);
       const fresh = items.filter((item) => !seen.has(item.id));
       report.fresh += fresh.length;
       if (!fresh.length) continue;
@@ -453,7 +492,9 @@ export class Home extends DurableObject<Env> {
       }
     }
 
-    if (report.fresh > report.submitted) {
+    if (report.baselined) {
+      report.note = `${report.baselined} 个源是第一次接上，这一轮只记基线、一条都不提交。从下一轮起，新出现的才会进收件箱。`;
+    } else if (report.fresh > report.submitted) {
       report.note = `发现 ${report.fresh} 条新的，这一轮只处理了 ${report.submitted} 条，剩下的下一轮继续。`;
     }
 
