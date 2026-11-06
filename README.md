@@ -134,7 +134,7 @@ printf '一串随机十六进制' | npx wrangler secret put ACCESS_TOKENS
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| `POST` | `/submit` | 发一条消息，立刻返回回执，模型还没开始跑 |
+| `POST` | `/submit` | 发一条消息，立刻返回回执，模型还没开始跑：`{text, operationId?}`。同一个 `operationId` 换一段文字重发 → `409 operation_id_reused`，什么都不会提交 |
 | `GET` | `/op?id=` | 查这张回执：`queued` / `running` / `parked` / `done` / `unanswered`，附 `at` `endedAt` `elapsedMs` |
 | `GET` | `/status` | 用的哪个模型、几条时间线、几个源、收件箱、今天的预算、累计用量（`?spend=fresh` 绕过六十秒缓存） |
 | `GET` | `/patrol` | 上一次巡检做了什么，下一次什么时候醒 |
@@ -204,11 +204,22 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 
 诚实分档，不掺水。**带链接的那三条不是描述，是 `node scripts/receipt.mjs <场景>` 当场跑出来的文件**——脚本自己拉起 wrangler dev，自己在半路杀掉 workerd，再把服务和检查跑完，把每一步的耗时和结果写进 `receipts/`。
 
+先说清**哪一档没验过**，因为把不同档位混着说最容易让读者高估：
+
+| 档 | 含义 | 我们到了没 |
+|---|---|---|
+| 本地 workerd + 真 provider | 真 key、真模型、真 SQLite、真杀掉进程，但跑在本机 | **到了**，见下面每条 |
+| 部署成功 | Worker 传上去了，版本号可查 | **到了**，`wrangler deploy` 过，但这一档**不等于验收** |
+| 部署后的真实请求 | 从公网打到那个实例，看到它自己醒、自己判 | **没到**。`*.workers.dev` 在国内被 DNS 污染（解析落到 `199.59.148.8`），这台机器和我的机器都到不了 |
+
+所以下面每一条都请按「本地 workerd 上验过」来读，不要读成「线上跑过」。这条分档是照 `helsome/OpenDot` 的验收文档写的——它四十三万行，云端验收状态到今天还是 Pending，理由和我们一样：**健康检查返回 200 不算验收。**
+
 | 验过 | 怎么验的 |
 |---|---|
 | 真实端到端 | 真 key，`deepseek-flash`，从提交到 `done` 拿到完整回答 |
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
+| **同一个 id 换内容会被拦** | 同 id 重发另一段文字 → `409 operation_id_reused`；跑完的答案仍是第一段那段文字的，被拦那段一个字都没进执行路径 → [receipts/reuse.json](receipts/reuse.json)（11/11） |
 | **断电续跑** | 真杀 `workerd`（核过端口确实不通），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（9/9） |
 | **用量算得出来** | 跑一个任务后累计 token 从 137494 涨到 138005（+511），钱从 $0.042963 到 $0.043045；同一份账在六十秒缓存期内两次读到的 `at` 相同 → [receipts/spend.json](receipts/spend.json)（18/18） |
 | **回执答得出跑了多久** | `elapsedMs` 有值，且同一条回执问两次 `endedAt` 不变（只盖一次） → 同上 |

@@ -60,6 +60,15 @@ type Note = {
    * 也不要让一个看着像精确值的数字撒谎。**
    */
   endedAt?: number;
+  /**
+   * 提交内容的摘要（sha256 前 8 字节）。
+   *
+   * 用来回答一个 `operationId` 回答不了的问题：**同一个 id，两次带来的文字一样吗？**
+   * 不存它的话，重投一个 id 换一段新文字，新文字会被 pi 当成重复提交拒掉
+   * （`accepted: false`），而调用方只看到「没被受理」，不知道自己的话被丢了。
+   * 旧回执没有这个字段，读到就当作「一样」并顺手补上。
+   */
+  digest?: string;
 };
 
 /**
@@ -114,6 +123,14 @@ type Spend = {
   tokens: number;
   /** provider 报价算出来的钱，单位美元。没有报价的 provider 报 0，不是「免费」。 */
   cost: number;
+  /**
+   * 这个金额是怎么来的。
+   *
+   * 它是 SDK 按 provider 报价表算的估算值，**不是账单**：没有真实扣费凭据，
+   * 也没有核过汇率和阶梯价。所以接口里明说，页面上写「估算」。
+   * 一个看着像精确值的数字最容易撒谎 —— 宁可它丑一点。
+   */
+  costKind: "estimate";
   models: SpendBucket[];
   tools: SpendBucket[];
   /** 算不出来时的原因。有它就说明下面那几个数不作数，而不是「花了 0」。 */
@@ -193,6 +210,19 @@ function tally(usage: { input?: number; output?: number; totalTokens?: number; c
   if (!usage) return { tokens: 0, cost: 0 };
   const sum = (usage.input ?? 0) + (usage.output ?? 0);
   return { tokens: usage.totalTokens || sum, cost: usage.cost?.total ?? 0 };
+}
+
+/**
+ * 一段文字的指纹，用来判断「同一个 operationId 两次带来的东西是不是同一份」。
+ *
+ * 用 sha256 而不是 `feeds.ts` 里那个 32 位 FNV：那个是给条目 id 用的，
+ * 撞了只是少看一篇文章；这个撞了会让一段真话被当成重复丢掉，代价不对称。
+ */
+async function digestOf(text: string): Promise<string> {
+  const sum = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(sum).slice(0, 8)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export class Home extends DurableObject<Env> {
@@ -490,6 +520,14 @@ export class Home extends DurableObject<Env> {
         const receipt = await this.submitText(promptFor(feed, item), taskId);
         // 提交失败（模型没配好）时不要把 id 记进 seen：留着它，下一轮还有机会。
         if (!receipt) continue;
+
+        // 冲突 = 这个 taskId 之前用另一段 prompt 提交过（改过 want 文案就会这样）。
+        // 这不是错误，是「已经做过」：记进 seen 让下一轮别再试，但不动收件箱里的那条，
+        // 也不扣预算 —— 这次一次模型都没调。
+        if (receipt.conflict) {
+          await this.recordSubmit(feed, item);
+          continue;
+        }
 
         quota--;
         report.submitted++;
@@ -822,6 +860,12 @@ export class Home extends DurableObject<Env> {
     if (!receipt) {
       return Response.json({ error: "model_not_configured", hint: this.setup.hint }, { status: 503 });
     }
+    if (receipt.conflict) {
+      return Response.json(
+        { error: "operation_id_reused", hint: receipt.conflict, session: receipt.session },
+        { status: 409 },
+      );
+    }
     return Response.json({ ...receipt, at: Date.now() });
   }
 
@@ -835,11 +879,39 @@ export class Home extends DurableObject<Env> {
   private async submitText(
     text: string,
     operationId: string,
-  ): Promise<{ operationId: string; session: string; accepted: boolean } | null> {
+  ): Promise<{
+    operationId: string;
+    session: string;
+    accepted: boolean;
+    /** 非空表示这个 id 之前配的是另一段文字，这次什么都没提交。 */
+    conflict?: string;
+  } | null> {
     if (!this.setup.ready) return null;
 
+    const digest = await digestOf(text);
     const existing = await this.ctx.storage.get<Note>(`op:${operationId}`);
     if (existing) {
+      // 同一个 id 必须对应同一段文字。
+      //
+      // 以前这里是直接把新文字塞进旧会话重投一次 —— pi 看到重复的 operationId
+      // 会返回 accepted: false，于是**新文字被静默丢掉**，调用方只拿到一句
+      // 「没被受理」。两个人（或一个页面手抖两次）用同一个 id 发不同的内容，
+      // 其中一段话就这么消失了，而且没有任何地方能查出来。
+      //
+      // 现在摘要不同就报冲突，让调用方自己决定：换个 id 重发，还是去查原来那张。
+      if (existing.digest && existing.digest !== digest) {
+        return {
+          operationId,
+          session: existing.session,
+          accepted: false,
+          conflict:
+            "这个 operationId 之前提交过另一段内容。新内容没有被提交（避免两段话混进同一条回执）。换个 id 重发，或用 /op 查原来那张回执。",
+        };
+      }
+      if (!existing.digest) {
+        // 旧回执没有摘要，无从比较，按「一样」处理并补上，下次就能比了。
+        await this.ctx.storage.put<Note>(`op:${operationId}`, { ...existing, digest });
+      }
       const receipt = await this.harness.submit(text, { operationId, session: existing.session });
       return { operationId, session: existing.session, accepted: receipt.accepted };
     }
@@ -851,6 +923,7 @@ export class Home extends DurableObject<Env> {
       text,
       at: Date.now(),
       session: session.id,
+      digest,
     });
 
     return { operationId, session: session.id, accepted: receipt.accepted };
@@ -895,9 +968,17 @@ export class Home extends DurableObject<Env> {
    */
   private async spend(fresh = false): Promise<Spend> {
     const cached = await this.ctx.storage.get<Spend>("spend:cache");
-    if (!fresh && cached && Date.now() - cached.at < SPEND_CACHE_MS) return cached;
+    // 老缓存没有 costKind，当成失效 —— 它来自加这个字段之前的那一版。
+    if (!fresh && cached?.costKind && Date.now() - cached.at < SPEND_CACHE_MS) return cached;
 
-    const empty: Spend = { at: Date.now(), tokens: 0, cost: 0, models: [], tools: [] };
+    const empty: Spend = {
+      at: Date.now(),
+      tokens: 0,
+      cost: 0,
+      costKind: "estimate",
+      models: [],
+      tools: [],
+    };
     let state;
     try {
       state = await (await this.harness.pi()).usage(BACKGROUND_CONTEXT);
@@ -929,6 +1010,7 @@ export class Home extends DurableObject<Env> {
       at: empty.at,
       tokens: total.tokens,
       cost: total.cost,
+      costKind: "estimate",
       // 大的排前面：一眼看到的是花得最多的那个模型，而不是字母序第一个。
       models: models.sort((a, b) => b.tokens - a.tokens),
       tools: tools.sort((a, b) => b.tokens - a.tokens),

@@ -1,0 +1,184 @@
+{
+  "kind": "memex.reuse",
+  "scenario": "reuse",
+  "observed": true,
+  "passed": true,
+  "when": "2026-11-06T09:46:40.606Z",
+  "deploy": {
+    "target": "wrangler dev --local :8787",
+    "runtime": "Cloudflare Worker + Durable Object (SQLite), Local",
+    "model": "deepseek/deepseek-flash",
+    "note": "本地 workerd，不是线上；DO 状态在 .wrangler/state，重启后保留"
+  },
+  "driver": "node scripts/receipt.mjs reuse",
+  "request": {
+    "operationId": "receipt-mw4sifzw",
+    "session": "881",
+    "prompt": "只回答一个字：一",
+    "conflicting": "只回答一个字：二"
+  },
+  "attempts": [
+    {
+      "operationId": "receipt-mw4sifzw",
+      "session": "881",
+      "accepted": true,
+      "at": 1793958399395
+    },
+    {
+      "error": "operation_id_reused",
+      "hint": "这个 operationId 之前提交过另一段内容。新内容没有被提交（避免两段话混进同一条回执）。换个 id 重发，或用 /op 查原来那张回执。",
+      "session": "881"
+    },
+    {
+      "operationId": "receipt-mw4sifzw",
+      "session": "881",
+      "accepted": false,
+      "at": 1793958400570
+    }
+  ],
+  "transcript": [
+    {
+      "role": "assistant",
+      "text": "一"
+    }
+  ],
+  "checks": [
+    {
+      "name": "dev server 起来了",
+      "pass": true,
+      "detail": "4833ms"
+    },
+    {
+      "name": "模型已就绪",
+      "pass": true,
+      "detail": "deepseek/deepseek-flash"
+    },
+    {
+      "name": "第一次提交被接受",
+      "pass": true,
+      "detail": "session 881"
+    },
+    {
+      "name": "换内容被拦下",
+      "pass": true,
+      "detail": "status 409"
+    },
+    {
+      "name": "错误码说得清是什么问题",
+      "pass": true,
+      "detail": "operation_id_reused"
+    },
+    {
+      "name": "没有为它新开一条时间线",
+      "pass": true,
+      "detail": "session 881"
+    },
+    {
+      "name": "任务跑完",
+      "pass": true
+    },
+    {
+      "name": "答案是第一段内容的，不是被拦那段",
+      "pass": true,
+      "detail": "一"
+    },
+    {
+      "name": "同一段内容重发仍按幂等处理",
+      "pass": true,
+      "detail": "accepted false"
+    },
+    {
+      "name": "仍落回原会话",
+      "pass": true,
+      "detail": "session 881"
+    },
+    {
+      "name": "整轮只新增一条会话",
+      "pass": true,
+      "detail": "57 → 58"
+    }
+  ],
+  "steps": [
+    {
+      "step": "start dev server",
+      "at": "2026-11-06T09:46:34.544Z",
+      "ms": 45
+    },
+    {
+      "step": "status before",
+      "at": "2026-11-06T09:46:39.356Z",
+      "ms": 4855,
+      "body": {
+        "model": "deepseek/deepseek-flash",
+        "sessions": 57,
+        "budget": {
+          "day": "2026-11-06",
+          "used": 20,
+          "limit": 20,
+          "manual": 31,
+          "total": 51
+        }
+      }
+    },
+    {
+      "step": "submit A",
+      "at": "2026-11-06T09:46:39.467Z",
+      "ms": 4966,
+      "status": 200,
+      "body": {
+        "operationId": "receipt-mw4sifzw",
+        "session": "881",
+        "accepted": true,
+        "at": 1793958399395
+      }
+    },
+    {
+      "step": "submit B with same id",
+      "at": "2026-11-06T09:46:39.514Z",
+      "ms": 5013,
+      "status": 409,
+      "body": {
+        "error": "operation_id_reused",
+        "hint": "这个 operationId 之前提交过另一段内容。新内容没有被提交（避免两段话混进同一条回执）。换个 id 重发，或用 /op 查原来那张回执。",
+        "session": "881"
+      }
+    },
+    {
+      "step": "settled",
+      "at": "2026-11-06T09:46:40.565Z",
+      "ms": 6064,
+      "body": {
+        "status": "done",
+        "chars": 1
+      }
+    },
+    {
+      "step": "replay A",
+      "at": "2026-11-06T09:46:40.592Z",
+      "ms": 6091,
+      "status": 200,
+      "body": {
+        "operationId": "receipt-mw4sifzw",
+        "session": "881",
+        "accepted": false,
+        "at": 1793958400570
+      }
+    },
+    {
+      "step": "status after",
+      "at": "2026-11-06T09:46:40.606Z",
+      "ms": 6105,
+      "body": {
+        "sessions": 58,
+        "budget": {
+          "day": "2026-11-06",
+          "used": 20,
+          "limit": 20,
+          "manual": 32,
+          "total": 52
+        }
+      }
+    }
+  ],
+  "notes": []
+}

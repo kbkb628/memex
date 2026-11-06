@@ -89,7 +89,8 @@
   // 四万两千 token 写成「4.2 万」，一个数字能读完才好比较。
   const tokens = (n) => (n >= 10000 ? (n / 10000).toFixed(1) + " 万" : String(n));
   // 一次任务常常是几厘钱，四舍五入到分就全变成 0 了，所以留四位。
-  const money = (usd) => (usd > 0 ? "（$" + usd.toFixed(4) + "）" : "");
+  // 写「估算」不是谦虚：这个数是 SDK 按报价表算的，不是账单，也没有汇率和阶梯价。
+  const money = (usd) => (usd > 0 ? "（估算 $" + usd.toFixed(4) + "）" : "");
 
   // ── 收件箱：它自己看来的东西 ──────────────────────────────
   async function loadInbox() {

@@ -13,6 +13,7 @@
  * 用法：
  *   node scripts/receipt.mjs break-resume
  *   node scripts/receipt.mjs idempotent
+ *   node scripts/receipt.mjs reuse
  *   node scripts/receipt.mjs spend
  *
  * 环境变量：
@@ -286,6 +287,59 @@ async function scenarioIdempotent() {
 }
 
 /**
+ * 同一个 operationId 换一段内容：必须被拦住，不能悄悄把新话塞进旧时间线。
+ *
+ * 这条规则是从 helsome/OpenDot 的审批账本照抄的：同一个 requestId + 同一份摘要
+ * 才返回同一个结果，摘要不同就报冲突。我们原来没有摘要，于是「同 id 换内容」
+ * 会走进 pi 的重复提交分支拿到 accepted: false —— 新那段话就没了，而且没人知道。
+ *
+ * 光验「返回 409」不够：要验跑出来的答案确实是第一段的。否则「先跑新的再报错」
+ * 也能让 409 那条通过。
+ */
+async function scenarioReuse() {
+  const operationId = `receipt-${Date.now().toString(36)}`;
+  const A = "只回答一个字：一";
+  const B = "只回答一个字：二";
+
+  const first = await submitTask(operationId, A);
+  step("submit A", { status: first.httpStatus, body: first.body });
+  check("第一次提交被接受", first.body.accepted === true, `session ${first.body.session}`);
+  const session = String(first.body.session);
+
+  const clash = await submitTask(operationId, B);
+  step("submit B with same id", { status: clash.httpStatus, body: clash.body });
+  check("换内容被拦下", clash.httpStatus === 409, `status ${clash.httpStatus}`);
+  check("错误码说得清是什么问题", clash.body.error === "operation_id_reused", clash.body.error);
+  check(
+    "没有为它新开一条时间线",
+    String(clash.body.session) === session,
+    `session ${clash.body.session}`,
+  );
+
+  const final = await waitSettled(operationId);
+  step("settled", { body: final ? { status: final.status, chars: final.text?.length ?? 0 } : null });
+  check("任务跑完", final?.status === "done");
+  // 关键的一条：答案必须是 A 的。被拦下的 B 一个字都不该出现。
+  const answer = final?.text ?? "";
+  check("答案是第一段内容的，不是被拦那段", answer.includes("一") && !answer.includes("二"), answer.slice(0, 20));
+
+  const replay = await submitTask(operationId, A);
+  step("replay A", { status: replay.httpStatus, body: replay.body });
+  check(
+    "同一段内容重发仍按幂等处理",
+    replay.httpStatus === 200 && replay.body.accepted === false,
+    `accepted ${replay.body.accepted}`,
+  );
+  check("仍落回原会话", String(replay.body.session) === session, `session ${replay.body.session}`);
+
+  return {
+    request: { operationId, session, prompt: A, conflicting: B },
+    attempts: [first.body, clash.body, replay.body],
+    transcript: final?.text ? [{ role: "assistant", text: final.text.slice(0, 4000) }] : [],
+  };
+}
+
+/**
  * 用量：跑一个任务前后，累计 token 和钱要跟着涨，而六十秒缓存期内不许重算。
  *
  * 两条一起验，是因为它们互相牵制：只验「涨了」看不出缓存是否生效，
@@ -408,6 +462,7 @@ async function main() {
   const scenarios = {
     "break-resume": scenarioBreakResume,
     idempotent: scenarioIdempotent,
+    reuse: scenarioReuse,
     spend: scenarioSpend,
   };
   const run = scenarios[NAME];
