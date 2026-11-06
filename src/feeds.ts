@@ -16,6 +16,16 @@ export type Feed = {
   label: string;
   /** 我要什么。它决定了这条内容值不值得进收件箱。 */
   want: string;
+  /**
+   * 抓取层的粗筛：标题或摘要里至少要命中一个词，否则连模型都不喂。
+   *
+   * 它和 `want` 是两层，不能合并：`want` 是给模型的一句话判断标准，
+   * 粗筛是「这种标题根本不用问」。空或省略 = 不筛，全部交给模型。
+   *
+   * 为什么不筛更省事：泛技术源（比如 HN 首页）一天几十条，命中率不到三成，
+   * 而每天能调模型的次数是固定的。筛掉噪音等于把额度还给了真正的内容。
+   */
+  prefilter?: string[];
   addedAt: number;
 };
 
@@ -32,6 +42,67 @@ export type FeedItem = {
 export type FetchResult =
   | { ok: true; title: string; items: FeedItem[] }
   | { ok: false; error: string };
+
+/**
+ * 判断一条内容值不值得花一次模型调用，在调用之前先问一遍。
+ *
+ * 挑选标准是「这个词出现，说明这条**可能**有关」，不是「必须出现」。
+ * 故意选得偏宽，因为两边代价不对称：放进来一条无关的，多花一次调用；
+ * 挡掉一条有关的，这条内容从此消失，而且用户不知道自己错过了什么。
+ *
+ * 实测背景：HN 首页一天十几条，命中率不到三成，而每天的调用次数是固定的一笔。
+ * 筛掉噪音不是省钱，是把额度还给真正的内容 —— 额度用完之后它就不干活了。
+ */
+export const PREFILTER_AGENT: string[] = [
+  // agent 运行时与持久执行
+  "agent", "agents", "agentic", "llm", "llms", "harness", "orchestration",
+  "durable", "workflow", "idempotent", "retry", "checkpoint",
+  // 模型与推理
+  "ai", "gpt", "claude", "gemini", "llama", "deepseek", "mistral", "openai",
+  "anthropic", "model", "models", "inference", "embedding", "rag", "prompt",
+  "token", "context window", "mcp",
+  // 运行时、存储、消息
+  "worker", "workers", "cloudflare", "serverless", "container", "sqlite",
+  "postgres", "database", "storage", "queue", "kafka", "redis", "crdt",
+  // 可观测与工程
+  "observability", "tracing", "telemetry", "benchmark", "eval",
+  "compiler", "debugger", "profiler", "lsp",
+  // 中文
+  "智能体", "大模型", "模型", "上下文", "持久", "数据库", "队列", "重试", "幂等", "可观测",
+];
+
+/**
+ * 跑一次粗筛，返回命中的那些词。空数组 = 一个都没命中 = 该挡。
+ *
+ * ASCII 词按整词边界匹配，不用 `includes` —— 两字母的词（`ai`、`db`）用子串
+ * 会命中 `said`、`main`、`explain`，筛子立刻变成摆设。中文没有空格，
+ * 只能按子串，这也是它放在词表后半段的原因：中文源本来就不多。
+ */
+export function prefilterHits(words: string[], item: FeedItem): string[] {
+  // 三段一起看，因为不同源给的信号在不同位置：
+  //   - 博客类源的 summary 是正文摘要，信息最多；
+  //   - HN 这类源的 summary 只有「Article URL / Points」这种元数据，一个字正文都没有，
+  //     真正的线索在标题和链接里。
+  //
+  // 摘要只取开头一段：RSS 常把整篇正文塞进来，全部扫一遍没意义。
+  const text = `${item.title}\n${item.link}\n${item.summary.slice(0, 400)}`.toLowerCase();
+  const hits: string[] = [];
+  for (const raw of words) {
+    const word = raw.trim().toLowerCase();
+    if (!word) continue;
+    if (/^[\x20-\x7e]+$/.test(word)) {
+      // 词边界匹配，不是 `includes`：`ai` 用子串会命中 `said`、`main`、`explain`，
+      // 一个两字母的词能把筛子变成摆设。带上边界之后，`-ai-`、`.ai/` 这类
+      // 链接里的写法照样认得出来，而字母黏着的情况一个都不会误撞。
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(text)) hits.push(raw);
+    } else if (text.includes(word)) {
+      // 中文没有空格，只能按子串。
+      hits.push(raw);
+    }
+  }
+  return hits;
+}
 
 /** 单次拉取上限：一个源一次最多读 1MB。 */
 const MAX_BYTES = 1024 * 1024;
@@ -354,7 +425,7 @@ export const SEEN_LIMIT = 300;
  *
  * 想换成自己的：删掉它们再加。`cfg:feeds` 一旦存在（哪怕是空数组）就不会再补。
  */
-export const DEFAULT_FEEDS: { url: string; label: string; want: string }[] = [
+export const DEFAULT_FEEDS: { url: string; label: string; want: string; prefilter?: string[] }[] = [
   {
     url: "https://blog.cloudflare.com/rss/",
     label: "Cloudflare 博客",
@@ -363,6 +434,10 @@ export const DEFAULT_FEEDS: { url: string; label: string; want: string }[] = [
   {
     url: "https://hnrss.org/frontpage",
     label: "HN 首页",
+    // 这个源必须配粗筛：它是「所有技术话题」的首页，不是「agent 话题」的首页。
+    // 不筛的话，一天二十几条里大半是内核补丁、复古硬件、公司新闻，
+    // 全都要花一次调用才能判掉，额度在下午就用完了。
+    prefilter: PREFILTER_AGENT,
     want: "有人真的做出东西、并且讨论得很具体的条目：新的开源项目、工程踩坑记录、架构复盘。不要融资新闻，不要政治和社会话题，不要「XX 要死了」式的感慨。",
   },
   {

@@ -13,6 +13,7 @@ import {
   INBOX_LIMIT,
   isSkip,
   localDay,
+  prefilterHits,
   promptFor,
   SEEN_LIMIT,
   type Feed,
@@ -101,6 +102,18 @@ const DAILY_CALLS = 20;
 const MAX_PER_RUN = 5;
 
 /**
+ * 一天能问模型几次。默认 20，部署时用 `DAILY_CALLS` 变量可以改。
+ *
+ * 不是为了让人把它调到无限 —— 上限本身是这个东西的产品定义。开放它是因为
+ * 「一天几件」因人而异：有人想一天只看五条，有人想三十条。写死等于替所有人
+ * 做了这个决定，而代价只是在确认一个数的时候多读一处配置。
+ */
+function dailyCalls(env: Env): number {
+  const raw = Number((env as unknown as Record<string, unknown>).DAILY_CALLS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DAILY_CALLS;
+}
+
+/**
  * 用量缓存多久。
  *
  * `usage()` 是 pi 的账本，它要把每条会话的用量文档各读一遍才算得出来。
@@ -170,6 +183,15 @@ type IngestReport = {
   baselined?: number;
   /** 这一轮清掉了几条「源已经不在了」的收件箱条目。 */
   pruned?: number;
+  /**
+   * 这一轮有几条被粗筛挡在模型外面（一个关注词都没命中）。
+   *
+   * 它们不占预算、不建任务、也不进收件箱 —— 但必须报出来。否则用户看到
+   * 「今天一条新的都没有」，会以为源坏了，实际是规则挡掉了。
+   */
+  prefiltered?: number;
+  /** 挡掉的里面挑几条给出来，让规则是否过窄能被人当场看到。 */
+  prefilteredSample?: { feed: string; title: string }[];
   note?: string;
 };
 
@@ -225,6 +247,24 @@ async function digestOf(text: string): Promise<string> {
     .join("");
 }
 
+/**
+ * 词表的输入形状：数组，或者一串用逗号/顿号隔开的词。
+ *
+ * 允许手写 `agent, llm、sqlite`，因为人不该为了填一个词表去拼 JSON 数组。
+ * 空串和空数组都返回空 —— 但调用方要区分「没传这个字段」和「传了个空的」：
+ * 前者是没意见，后者是明确要关掉粗筛。
+ */
+function parseWords(input: string[] | string | undefined): string[] {
+  if (!input) return [];
+  const raw = Array.isArray(input) ? input : input.split(/[,，、\n]+/);
+  const out: string[] = [];
+  for (const piece of raw) {
+    const word = String(piece).trim();
+    if (word && !out.includes(word)) out.push(word);
+  }
+  return out;
+}
+
 export class Home extends DurableObject<Env> {
   private readonly setup = buildModels(this.env);
   private readonly registry = createRegistry();
@@ -264,6 +304,7 @@ export class Home extends DurableObject<Env> {
       if (path === "/patrol" && request.method === "GET") return await this.patrolReport();
       if (path === "/feeds" && request.method === "GET") return await this.listFeeds();
       if (path === "/feeds" && request.method === "POST") return await this.addFeed(request);
+      if (path === "/feeds/update" && request.method === "POST") return await this.updateFeed(request);
       if (path === "/feeds/remove" && request.method === "POST") return await this.removeFeed(request);
       if (path === "/inbox" && request.method === "GET") return await this.listInbox(request);
       if (path === "/inbox/read" && request.method === "POST") return await this.markRead(request);
@@ -344,10 +385,33 @@ export class Home extends DurableObject<Env> {
    * 空数组，那是「我不要这些」的意思，不是「还没初始化」。
    */
   private async ensureDefaultFeeds(): Promise<void> {
-    if ((await this.ctx.storage.get<Feed[]>("cfg:feeds")) !== undefined) return;
-    const now = Date.now();
-    const feeds: Feed[] = DEFAULT_FEEDS.map((f) => ({ ...f, id: hashId(f.url), addedAt: now }));
-    await this.ctx.storage.put("cfg:feeds", feeds);
+    const existing = await this.ctx.storage.get<Feed[]>("cfg:feeds");
+    if (existing === undefined) {
+      const now = Date.now();
+      const feeds: Feed[] = DEFAULT_FEEDS.map((f) => ({ ...f, id: hashId(f.url), addedAt: now }));
+      await this.ctx.storage.put("cfg:feeds", feeds);
+      await this.ctx.storage.put("cfg:prefilter-migrated", true);
+      return;
+    }
+
+    // 一次性迁移：粗筛是后加的能力，老实例里那几个默认源的记录不会自己长出词表。
+    // 只用标记锁一次 —— 用户如果之后把 prefilter 删了，那是「我不要筛」的意思，
+    // 不能每次醒来又给他塞回去。
+    if (await this.ctx.storage.get<boolean>("cfg:prefilter-migrated")) return;
+    const defaults = new Map(
+      DEFAULT_FEEDS.filter((f) => f.prefilter?.length).map((f) => [f.url, f.prefilter!]),
+    );
+    let changed = false;
+    const patched = existing.map((feed) => {
+      const words = defaults.get(feed.url);
+      if (words && !feed.prefilter?.length) {
+        changed = true;
+        return { ...feed, prefilter: words };
+      }
+      return feed;
+    });
+    if (changed) await this.ctx.storage.put("cfg:feeds", patched);
+    await this.ctx.storage.put("cfg:prefilter-migrated", true);
   }
 
   /**
@@ -432,7 +496,7 @@ export class Home extends DurableObject<Env> {
       submitted: 0,
       settled: 0,
       skipped: 0,
-      budget: { day: localDay(now), used: 0, limit: DAILY_CALLS },
+      budget: { day: localDay(now), used: 0, limit: dailyCalls(this.env) },
     };
 
     // 清掉无主的收件箱条目：源已经不在了，它当初的判断结果留在这里只会让人困惑。
@@ -467,11 +531,12 @@ export class Home extends DurableObject<Env> {
       return report;
     }
 
-    let quota = Math.min(Math.max(DAILY_CALLS - used, 0), MAX_PER_RUN);
+    const limit = dailyCalls(this.env);
+    let quota = Math.min(Math.max(limit - used, 0), MAX_PER_RUN);
     if (quota === 0) {
       report.note =
-        used >= DAILY_CALLS
-          ? `今天的 ${DAILY_CALLS} 次已经用完，剩下的等明天。`
+        used >= limit
+          ? `今天的 ${limit} 次已经用完，剩下的等明天。`
           : `这一轮的上限 ${MAX_PER_RUN} 次在别处用完了。`;
       return report;
     }
@@ -512,8 +577,34 @@ export class Home extends DurableObject<Env> {
       report.fresh += fresh.length;
       if (!fresh.length) continue;
 
+      // 粗筛：一个关注词都没命中的，连模型都不喂。
+      //
+      // 挡掉的条目记进 seen —— 标题不会变，下一轮重新筛一遍纯属浪费。
+      // 但**不写收件箱**：那不是判断结论，是规则结论，而规则是可复算的
+      // （同样的标题 + 同样的词表，谁跑都是同一个结果）。给个计数加样本
+      // 就够核对筛得对不对；逐条留痕反而会把真正需要人看一眼的模型判断
+      // 挤出 INBOX_LIMIT。
+      const words = feed.prefilter ?? [];
+      let passing = fresh;
+      if (words.length) {
+        passing = [];
+        for (const item of fresh) {
+          if (prefilterHits(words, item).length) {
+            passing.push(item);
+            continue;
+          }
+          report.prefiltered = (report.prefiltered ?? 0) + 1;
+          report.prefilteredSample = [
+            ...(report.prefilteredSample ?? []),
+            { feed: feed.label, title: item.title },
+          ].slice(-5);
+          await this.recordSubmit(feed, item);
+        }
+        if (!passing.length) continue;
+      }
+
       // 从旧到新提交，这样收件箱里的顺序和真实时间一致。
-      for (const item of fresh.reverse()) {
+      for (const item of passing.reverse()) {
         if (quota <= 0) break;
 
         const taskId = this.taskIdOf(feed, item);
@@ -699,11 +790,17 @@ export class Home extends DurableObject<Env> {
    * 基线之后才开始工作，它第一次开口就是真的新东西。
    */
   private async addFeed(request: Request): Promise<Response> {
-    const body = await request.json<{ url?: string; label?: string; want?: string }>();
+    const body = await request.json<{
+      url?: string;
+      label?: string;
+      want?: string;
+      prefilter?: string[] | string;
+    }>();
     const url = body.url?.trim();
     if (!url) return Response.json({ error: "url is required" }, { status: 400 });
 
     const want = body.want?.trim() || "任何值得我知道的新内容";
+    const prefilter = parseWords(body.prefilter);
     const feeds = await this.readFeeds();
     if (feeds.some((f) => f.url === url)) {
       return Response.json({ error: "这个地址已经加过了" }, { status: 409 });
@@ -720,6 +817,7 @@ export class Home extends DurableObject<Env> {
       url,
       label: body.label?.trim() || probe.title,
       want,
+      ...(prefilter.length ? { prefilter } : {}),
       addedAt: Date.now(),
     };
 
@@ -732,6 +830,46 @@ export class Home extends DurableObject<Env> {
       feed,
       baseline: baseline.length,
       note: `已接入。现有 ${baseline.length} 条记为基线，之后有新的才会通知你。`,
+    });
+  }
+
+  /**
+   * 调一个源。`want` 和 `prefilter` 都允许改，因为这两个都是要试错的东西：
+   * 判得太宽还是太窄，只能靠看一段时间的跳过理由才知道，而那时源早就加完了。
+   *
+   * 改 `want` 不动已经判过的条目 —— 它们在 `seen:` 里，不会重判。
+   * 这是有意的：想重判就把源删了重加，那会重接基线，代价可见。
+   */
+  private async updateFeed(request: Request): Promise<Response> {
+    const body = await request.json<{
+      id?: string;
+      want?: string;
+      prefilter?: string[] | string;
+    }>();
+    const id = body.id?.trim();
+    if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+
+    const feeds = await this.readFeeds();
+    const index = feeds.findIndex((f) => f.id === id);
+    if (index < 0) return Response.json({ error: "没有这个源" }, { status: 404 });
+
+    const next: Feed = { ...feeds[index] };
+    if (body.want !== undefined) next.want = body.want.trim() || next.want;
+    if (body.prefilter !== undefined) {
+      const words = parseWords(body.prefilter);
+      // 传了空 = 明确关掉粗筛。不能当成「没填」而保留旧的，
+      // 否则用户永远没法把筛子摘掉。
+      if (words.length) next.prefilter = words;
+      else delete next.prefilter;
+    }
+
+    feeds[index] = next;
+    await this.ctx.storage.put("cfg:feeds", feeds);
+    return Response.json({
+      feed: next,
+      note: next.prefilter?.length
+        ? `粗筛 ${next.prefilter.length} 个词。下一轮起生效，已经见过的条目不会重判。`
+        : "这个源没有粗筛，每条新内容都会问一次模型。",
     });
   }
 
@@ -819,7 +957,7 @@ export class Home extends DurableObject<Env> {
       budget: {
         day,
         used: (await this.ctx.storage.get<number>(`budget:${day}`)) ?? 0,
-        limit: DAILY_CALLS,
+        limit: dailyCalls(this.env),
       },
     });
   }
@@ -1047,7 +1185,7 @@ export class Home extends DurableObject<Env> {
         day,
         /** 自动提交（输入源）用掉的，这个数才有上限。 */
         used: auto,
-        limit: DAILY_CALLS,
+        limit: dailyCalls(this.env),
         /** 你今天自己发的。不受上限拦，但也别假装它不存在。 */
         manual: Math.max(today - auto, 0),
         total: today,
