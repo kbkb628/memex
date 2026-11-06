@@ -221,7 +221,7 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
 | **同一个 id 换内容会被拦** | 同 id 重发另一段文字 → `409 operation_id_reused`；跑完的答案仍是第一段那段文字的，被拦那段一个字都没进执行路径 → [receipts/reuse.json](receipts/reuse.json)（11/11） |
 | **断电续跑** | 真杀 `workerd`（核过端口确实不通），重启后在同一条会话上跑完 → [receipts/break-resume.json](receipts/break-resume.json)（9/9） |
-| **用量算得出来** | 跑一个任务后累计 token 从 137494 涨到 138005（+511），钱从 $0.042963 到 $0.043045；同一份账在六十秒缓存期内两次读到的 `at` 相同 → [receipts/spend.json](receipts/spend.json)（18/18） |
+| **用量算得出来** | 跑一个任务后累计 token 从 154653 涨到 155164（+511），估算金额从 $0.047572 到 $0.047655；同一份账在六十秒缓存期内两次读到的 `at` 相同；金额自带 `costKind: "estimate"` → [receipts/spend.json](receipts/spend.json)（19/19） |
 | **回执答得出跑了多久** | `elapsedMs` 有值，且同一条回执问两次 `endedAt` 不变（只盖一次） → 同上 |
 | **预算不混账** | 同一次检查里，今天总数从 46 涨到 47，而「自动」那一栏 17 → 17 不动 → 同上 |
 | 野 id 不挂住 | `GET /op?id=nope` → 404（先查 pending 再 wait，不会把请求挂在对象里） |
