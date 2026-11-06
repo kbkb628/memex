@@ -3,7 +3,7 @@
   "scenario": "spend",
   "observed": true,
   "passed": true,
-  "when": "2026-11-06T08:48:42.896Z",
+  "when": "2026-11-06T09:49:03.943Z",
   "deploy": {
     "target": "wrangler dev --local :8787",
     "runtime": "Cloudflare Worker + Durable Object (SQLite), Local",
@@ -12,33 +12,35 @@
   },
   "driver": "node scripts/receipt.mjs spend",
   "request": {
-    "operationId": "receipt-mw4qfwju",
-    "session": "808"
+    "operationId": "receipt-mw4slhrw",
+    "session": "892"
   },
   "before": {
     "scope": "lifetime",
-    "at": 1793954921615,
-    "tokens": 137494,
-    "cost": 0.04296272399999999,
+    "at": 1793958541633,
+    "tokens": 154653,
+    "cost": 0.04757236799999999,
+    "costKind": "estimate",
     "models": [
       {
         "name": "deepseek/deepseek-flash",
-        "tokens": 137494,
-        "cost": 0.04296272399999999
+        "tokens": 154653,
+        "cost": 0.04757236799999999
       }
     ],
     "tools": []
   },
   "after": {
     "scope": "lifetime",
-    "at": 1793954922869,
-    "tokens": 138005,
-    "cost": 0.04304525999999999,
+    "at": 1793958543918,
+    "tokens": 155164,
+    "cost": 0.04765490399999999,
+    "costKind": "estimate",
     "models": [
       {
         "name": "deepseek/deepseek-flash",
-        "tokens": 138005,
-        "cost": 0.04304525999999999
+        "tokens": 155164,
+        "cost": 0.04765490399999999
       }
     ],
     "tools": []
@@ -53,7 +55,7 @@
     {
       "name": "dev server 起来了",
       "pass": true,
-      "detail": "3867ms"
+      "detail": "3829ms"
     },
     {
       "name": "模型已就绪",
@@ -71,9 +73,14 @@
       "detail": "lifetime"
     },
     {
+      "name": "金额标明是估算而不是账单",
+      "pass": true,
+      "detail": "estimate"
+    },
+    {
       "name": "预算分得清自动和手动",
       "pass": true,
-      "detail": "今天 46 次（自动 17、手动 29，上限 20）"
+      "detail": "今天 52 次（自动 20、手动 32，上限 20）"
     },
     {
       "name": "缓存期内不重算（同一份账）",
@@ -91,32 +98,32 @@
     {
       "name": "回执答得出跑了多久",
       "pass": true,
-      "detail": "1111ms"
+      "detail": "2139ms"
     },
     {
       "name": "再问一次，结算时间不变",
       "pass": true,
-      "detail": "1793954922816"
+      "detail": "1793958543863"
     },
     {
       "name": "缓存期内仍是旧账（说明没有每次都重算）",
       "pass": true,
-      "detail": "137494 → 137494"
+      "detail": "154653 → 154653"
     },
     {
       "name": "强制重算后 token 涨了",
       "pass": true,
-      "detail": "137494 → 138005（+511）"
+      "detail": "154653 → 155164（+511）"
     },
     {
       "name": "钱跟着 token 一起涨",
       "pass": true,
-      "detail": "$0.042963 → $0.043045"
+      "detail": "$0.047572 → $0.047655"
     },
     {
       "name": "账记在具体模型名下",
       "pass": true,
-      "detail": "deepseek/deepseek-flash=138005"
+      "detail": "deepseek/deepseek-flash=155164"
     },
     {
       "name": "没有假字段：工具用量是空数组而不是编出来的数",
@@ -125,55 +132,56 @@
     {
       "name": "手动提交也计入今天",
       "pass": true,
-      "detail": "46 → 47"
+      "detail": "52 → 53"
     },
     {
       "name": "自动那一栏没被手动带偏",
       "pass": true,
-      "detail": "17 → 17"
+      "detail": "20 → 20"
     },
     {
       "name": "整轮只新增一条会话",
       "pass": true,
-      "detail": "52 → 53"
+      "detail": "58 → 59"
     }
   ],
   "steps": [
     {
       "step": "start dev server",
-      "at": "2026-11-06T08:48:37.752Z",
-      "ms": 32
+      "at": "2026-11-06T09:48:57.814Z",
+      "ms": 37
     },
     {
       "step": "status before",
-      "at": "2026-11-06T08:48:41.609Z",
-      "ms": 3887,
+      "at": "2026-11-06T09:49:01.627Z",
+      "ms": 3848,
       "body": {
         "model": "deepseek/deepseek-flash",
-        "sessions": 52,
+        "sessions": 58,
         "budget": {
           "day": "2026-11-06",
-          "used": 17,
+          "used": 20,
           "limit": 20,
-          "manual": 29,
-          "total": 46
+          "manual": 32,
+          "total": 52
         }
       }
     },
     {
       "step": "spend before",
-      "at": "2026-11-06T08:48:41.658Z",
-      "ms": 3936,
+      "at": "2026-11-06T09:49:01.677Z",
+      "ms": 3898,
       "body": {
         "scope": "lifetime",
-        "at": 1793954921615,
-        "tokens": 137494,
-        "cost": 0.04296272399999999,
+        "at": 1793958541633,
+        "tokens": 154653,
+        "cost": 0.04757236799999999,
+        "costKind": "estimate",
         "models": [
           {
             "name": "deepseek/deepseek-flash",
-            "tokens": 137494,
-            "cost": 0.04296272399999999
+            "tokens": 154653,
+            "cost": 0.04757236799999999
           }
         ],
         "tools": []
@@ -181,29 +189,29 @@
     },
     {
       "step": "status again",
-      "at": "2026-11-06T08:48:41.672Z",
-      "ms": 3950,
+      "at": "2026-11-06T09:49:01.691Z",
+      "ms": 3912,
       "body": {
-        "at": 1793954921615,
-        "tokens": 137494
+        "at": 1793958541633,
+        "tokens": 154653
       }
     },
     {
       "step": "submit",
-      "at": "2026-11-06T08:48:41.763Z",
-      "ms": 4041,
+      "at": "2026-11-06T09:49:01.781Z",
+      "ms": 4002,
       "status": 200,
       "body": {
-        "operationId": "receipt-mw4qfwju",
-        "session": "808",
+        "operationId": "receipt-mw4slhrw",
+        "session": "892",
         "accepted": true,
-        "at": 1793954921705
+        "at": 1793958541724
       }
     },
     {
       "step": "settled",
-      "at": "2026-11-06T08:48:42.837Z",
-      "ms": 5115,
+      "at": "2026-11-06T09:49:03.885Z",
+      "ms": 6106,
       "body": {
         "status": "done",
         "chars": 8
@@ -211,27 +219,28 @@
     },
     {
       "step": "status after task (cached)",
-      "at": "2026-11-06T08:48:42.865Z",
-      "ms": 5143,
+      "at": "2026-11-06T09:49:03.913Z",
+      "ms": 6134,
       "body": {
-        "at": 1793954921615,
-        "tokens": 137494
+        "at": 1793958541633,
+        "tokens": 154653
       }
     },
     {
       "step": "spend fresh",
-      "at": "2026-11-06T08:48:42.882Z",
-      "ms": 5160,
+      "at": "2026-11-06T09:49:03.931Z",
+      "ms": 6152,
       "body": {
         "scope": "lifetime",
-        "at": 1793954922869,
-        "tokens": 138005,
-        "cost": 0.04304525999999999,
+        "at": 1793958543918,
+        "tokens": 155164,
+        "cost": 0.04765490399999999,
+        "costKind": "estimate",
         "models": [
           {
             "name": "deepseek/deepseek-flash",
-            "tokens": 138005,
-            "cost": 0.04304525999999999
+            "tokens": 155164,
+            "cost": 0.04765490399999999
           }
         ],
         "tools": []
@@ -239,16 +248,16 @@
     },
     {
       "step": "status after",
-      "at": "2026-11-06T08:48:42.896Z",
-      "ms": 5174,
+      "at": "2026-11-06T09:49:03.943Z",
+      "ms": 6164,
       "body": {
-        "sessions": 53,
+        "sessions": 59,
         "budget": {
           "day": "2026-11-06",
-          "used": 17,
+          "used": 20,
           "limit": 20,
-          "manual": 30,
-          "total": 47
+          "manual": 33,
+          "total": 53
         }
       }
     }

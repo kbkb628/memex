@@ -352,6 +352,13 @@ async function scenarioSpend() {
   step("spend before", { body: before.spend });
   check("用量账本存在", !!before.spend, before.spend?.scope);
   check("口径写明是累计", before.spend?.scope === "lifetime", String(before.spend?.scope));
+  // 这个字段被漏过一次：类型里有，/status 那层手工拼对象时忘了带上。
+  // 所以它必须在凭证里出现，而不是只在源码里出现。
+  check(
+    "金额标明是估算而不是账单",
+    before.spend?.costKind === "estimate",
+    String(before.spend?.costKind),
+  );
   // 上限只拦自动提交，所以 status 必须把「今天总共几条」和「其中自动几条」分开。
   // 只报一个数的话，手动发的消息就无处安放，读起来像在说总账。
   check(

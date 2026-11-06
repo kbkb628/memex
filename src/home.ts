@@ -1058,6 +1058,7 @@ export class Home extends DurableObject<Env> {
         at: spend.at,
         tokens: spend.tokens,
         cost: spend.cost,
+        costKind: spend.costKind,
         models: spend.models,
         tools: spend.tools,
         ...(spend.error ? { error: spend.error } : {}),
