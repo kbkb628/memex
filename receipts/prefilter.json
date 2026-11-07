@@ -1,15 +1,15 @@
 {
   "kind": "memex.prefilter",
-  "when": "2026-11-07T08:14:38.349Z",
+  "when": "2026-11-07T11:48:58.399Z",
   "passed": true,
-  "replayed": 31,
+  "replayed": 33,
   "counted": {
     "kill": 0,
-    "keep": 7,
+    "keep": 9,
     "waste": 16,
     "good": 6
   },
-  "savedPercent": 21,
+  "savedPercent": 19,
   "feeds": [
     {
       "label": "Cloudflare 博客",
@@ -26,6 +26,23 @@
   ],
   "kill": [],
   "keep": [
+    {
+      "title": "Every Mac comes with an (undocumented) family member classifier",
+      "link": "https://8rank.ai/game/apple-intelligence-personal-knowledge-graph",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "The Components of Agent Memory",
+      "link": "https://www.anthropic.com/research/components-of-agent-memory",
+      "feed": "HN 首页",
+      "hits": [
+        "agent",
+        "anthropic"
+      ]
+    },
     {
       "title": "ChatGPT silently passes data between connectors and the bounty wants an ID card",
       "link": "https://community.openai.com/t/security-follow-up-tool-call-silently-routed-to-a-different-connector/1413053",

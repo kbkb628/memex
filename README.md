@@ -263,14 +263,15 @@ DoH 查真实值         → 173.255.209.47
 
 这一档里最实的一条是「它自己会醒」。第一次跑时实例刚部署，`/patrol` 只能给出排期（1 分钟后）；第二次跑读到 `last.at = 2026-11-07T10:54:53.125Z` —— 正好是那个排期到点的时刻，`scanned: 2`。**两份日志的时间戳对得上，这是醒过的证据，不是「排期存在」的转述。**
 
-剩下每一条都请按「本地 workerd 上验过」来读，不要读成「线上逐条都验过」——线上这一份只覆盖了 17 条主链路断言。这条分档是照 `helsome/OpenDot` 的验收文档写的：它四十三万行，云端验收状态到今天还是 Pending，理由和我们一样：**健康检查返回 200 不算验收。**
+剩下每一条都请按「本地 workerd 上验过」来读，不要读成「线上逐条都验过」——线上这一份只覆盖了 19 条主链路断言，杀进程、断电续跑、预算拆账在线上一条都没做。这条分档是照 `helsome/OpenDot` 的验收文档写的：它四十三万行，云端验收状态到今天还是 Pending，理由和我们一样：**健康检查返回 200 不算验收。**
 
 | 验过 | 怎么验的 |
 |---|---|
 | **线上 · 公网能打到** | 从 GitHub runner 打 `/health` → 200，`/status` 不带 token → 401，带了 → 200 且返回模型名和预算 |
 | **线上 · 任务真的跑完** | 提交到 `done`，3391ms，答案就是问的那个年份；同 id 同文字重发 `accepted: false` 且落回同一条会话（29） |
 | **线上 · 目标能推** | 建一个带 `answer_contains` 的目标，第 1 轮 `done`，`pendingOp` 建完就有值 |
-| **线上 · 到点真的醒过** | 第一轮看到排期 1 分钟后；第二轮读到 `last.at = 2026-11-07T10:54:53.125Z`，`scanned: 2`，且 `next` 自己推到 24 小时后 → [receipts/live.json](receipts/live.json)（17/17），重跑用 `gh workflow run live.yml` |
+| **线上 · 部署的不是旧版本** | 线上返回的 `/` 和仓库里 `public/index.html` 逐字节相同（`sha256 1d0a642f2027…`，18677 字节）。它抓的是「改完页面忘了重新部署」——那种坏法下所有接口断言照样全绿，因为它们不打页面 |
+| **线上 · 到点真的醒过** | 第一轮看到排期 1 分钟后；第二轮读到 `last.at = 2026-11-07T10:54:53.125Z`，`scanned: 2`，且 `next` 自己推到 24 小时后 → [receipts/live.json](receipts/live.json)（19/19），重跑用 `gh workflow run live.yml` |
 | 真实端到端 | 真 key，`deepseek-flash`，从提交到 `done` 拿到完整回答 |
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |

@@ -3,24 +3,34 @@
   "scenario": "live",
   "observed": true,
   "passed": true,
-  "when": "2026-11-07T10:55:47.576Z",
+  "when": "2026-11-07T11:51:38.923Z",
   "deploy": {
     "target": "https://personal-agent.kbkb628.workers.dev",
-    "from": "github-actions (GitHub Actions 1000000401)",
+    "from": "github-actions (GitHub Actions 1000000404)",
     "why": "这台开发机到 Cloudflare 边缘整体不通（DNS 污染 + 直连真实 IP 超时），所以从公网 runner 发起",
     "runtime": "Cloudflare Workers + Durable Object (SQLite), 线上"
   },
   "driver": "node scripts/live-check.mjs",
   "request": {
-    "operationId": "live-20261107105539",
-    "session": "29",
-    "probe": "用一句话回答：20261107105539 这个时间戳的年份是多少？只回一个数字。"
+    "operationId": "live-20261107115131",
+    "session": "51",
+    "probe": "用一句话回答：20261107115131 这个时间戳的年份是多少？只回一个数字。"
   },
   "checks": [
     {
       "name": "公网能打到 /health",
       "pass": true,
       "detail": "200"
+    },
+    {
+      "name": "公网能拿到页面",
+      "pass": true,
+      "detail": "200, 18677 字节"
+    },
+    {
+      "name": "线上那一页和仓库里这一页逐字节相同",
+      "pass": true,
+      "detail": "1d0a642f2027 vs 1d0a642f2027"
     },
     {
       "name": "不带 token 打 /status → 401",
@@ -40,7 +50,7 @@
     {
       "name": "返回里有预算",
       "pass": true,
-      "detail": "{\"day\":\"2026-11-07\",\"used\":0,\"limit\":20,\"manual\":2,\"total\":2}"
+      "detail": "{\"day\":\"2026-11-07\",\"used\":0,\"limit\":20,\"manual\":4,\"total\":4}"
     },
     {
       "name": "/patrol 有下一次的时间",
@@ -55,12 +65,12 @@
     {
       "name": "下一次巡检排在未来",
       "pass": true,
-      "detail": "86354 秒"
+      "detail": "83002 秒"
     },
     {
       "name": "提交拿到回执",
       "pass": true,
-      "detail": "{\"operationId\":\"live-20261107105539\",\"session\":\"29\",\"accepted\":true,\"at\":1794048939540}"
+      "detail": "{\"operationId\":\"live-20261107115131\",\"session\":\"51\",\"accepted\":true,\"at\":1794052291086}"
     },
     {
       "name": "同 id 同文字重发被判重复",
@@ -70,7 +80,7 @@
     {
       "name": "重发落回同一条会话",
       "pass": true,
-      "detail": "29"
+      "detail": "51"
     },
     {
       "name": "线上跑完了，且答案是空的以外的东西",
@@ -80,7 +90,7 @@
     {
       "name": "回执答得出跑了多久",
       "pass": true,
-      "detail": "3391ms"
+      "detail": "3421ms"
     },
     {
       "name": "答案答到了问的那件事",
@@ -90,12 +100,12 @@
     {
       "name": "线上能建目标",
       "pass": true,
-      "detail": "gpk1of"
+      "detail": "stdq9b"
     },
     {
       "name": "建完就起了第一轮",
       "pass": true,
-      "detail": "goal:gpk1of:r1"
+      "detail": "goal:stdq9b:r1"
     },
     {
       "name": "线上目标有结论（done 或 failed）",
@@ -105,7 +115,15 @@
   ],
   "steps": [
     {
-      "at": 898,
+      "at": 537,
+      "name": "页面",
+      "info": {
+        "bytes": 18677,
+        "sha256": "1d0a642f2027144d"
+      }
+    },
+    {
+      "at": 965,
       "name": "线上状态",
       "info": {
         "model": "deepseek/deepseek-flash",
@@ -118,13 +136,13 @@
           "day": "2026-11-07",
           "used": 0,
           "limit": 20,
-          "manual": 2,
-          "total": 2
+          "manual": 4,
+          "total": 4
         }
       }
     },
     {
-      "at": 995,
+      "at": 1017,
       "name": "上一次巡检",
       "info": {
         "at": "2026-11-07T10:54:53.125Z",
@@ -135,23 +153,23 @@
       }
     },
     {
-      "at": 995,
+      "at": 1018,
       "name": "下一次巡检",
-      "info": "86354 秒后"
+      "info": "83002 秒后"
     },
     {
-      "at": 1209,
+      "at": 1239,
       "name": "已受理",
       "info": {
-        "operationId": "live-20261107105539",
-        "session": "29"
+        "operationId": "live-20261107115131",
+        "session": "51"
       }
     },
     {
-      "at": 9089,
+      "at": 8865,
       "name": "目标",
       "info": {
-        "id": "gpk1of",
+        "id": "stdq9b",
         "status": "done",
         "runs": 1,
         "why": "第 1 轮满足全部条件。"
