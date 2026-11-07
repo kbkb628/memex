@@ -20,7 +20,8 @@
  *   SKIP_GOAL=1  跳过目标那一节（省钱，或者线上还是旧版本时）
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const BASE = (process.env.BASE || "").replace(/\/$/, "");
@@ -73,11 +74,33 @@ async function main() {
   const health = await http("/health");
   check("公网能打到 /health", health.status === 200 && String(health.body).includes("ok"), `${health.status}`);
 
-  // ── 2. 鉴权在线上是真的生效的
+  // ── 2. 线上那一页，就是仓库里的这一页
+  //
+  // 这条治的是「部署是旧的」，而它恰好是别的断言全都抓不到的一种坏法：
+  // `wrangler deploy` 成功只说明传上去了一个版本，不说明传的是你现在手上这份。
+  // 改完页面忘了重新部署，人打开看到的还是上个月的界面，而下面每一条接口断言
+  // 照样全绿 —— 因为它们根本不打页面。
+  //
+  // 用逐字节比对而不是「包含某个标题」：后者在改文案、改版式时永远为真，
+  // 在真的部署旧版本时也可能为真（旧版本也有那个标题）。
+  const pageRes = await fetch(`${BASE}/`, { signal: AbortSignal.timeout(20_000) });
+  const pageBytes = Buffer.from(await pageRes.arrayBuffer());
+  const liveHash = createHash("sha256").update(pageBytes).digest("hex");
+  const localBytes = await readFile(path.resolve("public/index.html"));
+  const localHash = createHash("sha256").update(localBytes).digest("hex");
+  check("公网能拿到页面", pageRes.status === 200 && pageBytes.length > 1000, `${pageRes.status}, ${pageBytes.length} 字节`);
+  check(
+    "线上那一页和仓库里这一页逐字节相同",
+    liveHash === localHash,
+    `${liveHash.slice(0, 12)} vs ${localHash.slice(0, 12)}`,
+  );
+  step("页面", { bytes: pageBytes.length, sha256: liveHash.slice(0, 16) });
+
+  // ── 3. 鉴权在线上是真的生效的
   const anon = await fetch(`${BASE}/status`, { signal: AbortSignal.timeout(20_000) });
   check("不带 token 打 /status → 401", anon.status === 401, `${anon.status}`);
 
-  // ── 3. 带了 token 就该给全量状态
+  // ── 4. 带了 token 就该给全量状态
   const status = await http("/status");
   const ok3 = check("/status 带 token → 200", status.status === 200, `${status.status}`);
   if (!ok3) throw new Error(`带 token 也进不去：${JSON.stringify(status.body).slice(0, 200)}`);
@@ -90,7 +113,7 @@ async function main() {
     budget: status.body.budget,
   });
 
-  // ── 4. 它自己会醒：这一档最该验的其实是这个
+  // ── 5. 它自己会醒：这一档最该验的其实是这个
   //
   // 关键区别：「排期存在」和「到点真的醒过」是两件事。
   // 第一次跑这个脚本时实例刚部署，`last` 还是空的，只能验排期；
@@ -136,7 +159,7 @@ async function main() {
   }
 
 
-  // ── 5. 真跑一个任务：提交、拿回执、等它自己跑完
+  // ── 6. 真跑一个任务：提交、拿回执、等它自己跑完
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   const probe = `用一句话回答：${stamp} 这个时间戳的年份是多少？只回一个数字。`;
   const operationId = `live-${stamp}`;
@@ -180,7 +203,7 @@ async function main() {
   check("回执答得出跑了多久", typeof final.elapsedMs === "number" && final.elapsedMs > 0, `${final.elapsedMs}ms`);
   check("答案答到了问的那件事", String(final.text ?? "").includes("2026"), (final.text ?? "").slice(0, 60));
 
-  // ── 6. 目标：线上这一层也能推一轮
+  // ── 7. 目标：线上这一层也能推一轮
   if (SKIP_GOAL) {
     step("目标", "跳过（SKIP_GOAL=1）");
   } else {
