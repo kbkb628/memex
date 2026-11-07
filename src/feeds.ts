@@ -52,6 +52,11 @@ export type FetchResult =
  *
  * 实测背景：HN 首页一天十几条，命中率不到三成，而每天的调用次数是固定的一笔。
  * 筛掉噪音不是省钱，是把额度还给真正的内容 —— 额度用完之后它就不干活了。
+ *
+ * **默认源里已经没有这张表的位置了。** 换源之后前面站着的是关键词订阅，
+ * 筛发生在抓取之前，比这层便宜得多；累计只省 19% 就是这张表的实测上限
+ * （`ai` 这个词在 HN 标题上已经失去区分力）。留着它是给「自己想加一个
+ * 泛话题源」的人直接用，别再从头想一遍词表。
  */
 export const PREFILTER_AGENT: string[] = [
   // agent 运行时与持久执行
@@ -123,25 +128,44 @@ export async function fetchFeed(url: string): Promise<FetchResult> {
     return { ok: false, error: `只支持 http/https，收到的是 ${target.protocol}` };
   }
 
-  let response: Response;
-  try {
-    response = await fetch(target.toString(), {
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (compatible; memex/0.1; +https://github.com/kbkb628/memex) feed",
-        accept: "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (error) {
-    const err = error as { name?: string; message?: string };
-    const timedOut = err?.name === "TimeoutError";
+  // hnrss 这类公共服务偶发 502。一次抓不到，这个源就要等下一轮巡检 ——
+  // 三小时之后。所以 5xx 和网络错误重试一次；4xx 不重试，那是地址本身的问题，
+  // 重试只是多打扰对方一次。
+  let response: Response | undefined;
+  let lastStatus = 0;
+  let lastStatusText = "";
+  let lastError: { name?: string; message?: string } | undefined;
+  for (let attempt = 0; attempt < 2 && !response; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 800));
+    try {
+      const res = await fetch(target.toString(), {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (compatible; memex/0.1; +https://github.com/kbkb628/memex) feed",
+          accept: "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (res.status >= 500) {
+        lastStatus = res.status;
+        lastStatusText = res.statusText;
+        continue;
+      }
+      response = res;
+    } catch (error) {
+      lastError = error as { name?: string; message?: string };
+    }
+  }
+
+  if (!response) {
+    if (lastStatus) return { ok: false, error: `对方返回 ${lastStatus} ${lastStatusText}（重试过一次）。` };
+    const timedOut = lastError?.name === "TimeoutError";
     return {
       ok: false,
       error: timedOut
         ? `拉取超时（${TIMEOUT_MS / 1000} 秒）。这个源可能很慢，或者在当前网络下不可达。`
-        : `拿不到响应（${[err?.name, err?.message].filter(Boolean).join(": ")}）。`,
+        : `拿不到响应（${[lastError?.name, lastError?.message].filter(Boolean).join(": ")}）。`,
     };
   }
 
@@ -431,14 +455,30 @@ export const DEFAULT_FEEDS: { url: string; label: string; want: string; prefilte
     label: "Cloudflare 博客",
     want: "Cloudflare 自己的工程实践：新的运行时能力、Durable Objects / Workers 的真实限制和坑、他们踩过的架构问题。不要产品发布、市场活动、客户案例宣传。",
   },
+  // 曾经的默认源是 HN 首页（`https://hnrss.org/frontpage`，配一整张粗筛词表）。
+  // 换掉了，理由是量出来的：首页一天二十几条里命中率不到三成，而 `ai` 这个词
+  // 在那种标题上已经失去区分力（大多数标题都含它），粗筛累计只省 19%，
+  // 额度照样下午就见底。详见 docs/decisions/014-oriented-sources.md。
+  //
+  // 换成关键词订阅之后，「筛」这个动作从「事后判」挪到了「事前就不抓」。
+  // 同一天量过：`newest?q="durable objects"` 回来 19 条，几乎条条对题。
+  //
+  // `points=20` 是第二道筛子：让分数替我们判断「有没有人觉得这条值得看」。
+  // 代价是刚发出来、还没攒到 20 分的帖子永远看不到 —— 对「发现」这个用途可以接受。
   {
-    url: "https://hnrss.org/frontpage",
-    label: "HN 首页",
-    // 这个源必须配粗筛：它是「所有技术话题」的首页，不是「agent 话题」的首页。
-    // 不筛的话，一天二十几条里大半是内核补丁、复古硬件、公司新闻，
-    // 全都要花一次调用才能判掉，额度在下午就用完了。
-    prefilter: PREFILTER_AGENT,
-    want: "有人真的做出东西、并且讨论得很具体的条目：新的开源项目、工程踩坑记录、架构复盘。不要融资新闻，不要政治和社会话题，不要「XX 要死了」式的感慨。",
+    url: "https://hnrss.org/newest?q=%22durable+objects%22&points=20",
+    label: "HN · durable objects",
+    want: "有人真的用它做了东西、或者踩了坑的具体记录：自托管实现、状态与恢复的真实问题、成本事故、迁移复盘。不要融资、招聘、发布公告、纯观点。",
+  },
+  {
+    url: "https://hnrss.org/newest?q=%22agent+runtime%22&points=20",
+    label: "HN · agent runtime",
+    want: "agent 运行时本身怎么做的：沙箱、执行循环、权限与审计、长任务怎么恢复。不要「我们发布了 XX 平台」这类公告。",
+  },
+  {
+    url: "https://hnrss.org/newest?q=%22llm+agent%22&points=20",
+    label: "HN · llm agent",
+    want: "agent 工程里具体的做法和翻车：上下文管理、工具调用的可靠性、评测暴露出来的问题。不要榜单、不要「AI 要取代谁」的议论。",
   },
   {
     url: "https://www.ruanyifeng.com/blog/atom.xml",

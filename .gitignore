@@ -7,3 +7,5 @@ node_modules/
 worker-configuration.d.ts
 .tmp-state/
 .workbuddy/
+# 临时试验文件（抓包、回放数据）。曾经误提交过一次。
+.tmp-*

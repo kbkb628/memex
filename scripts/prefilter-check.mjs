@@ -73,8 +73,22 @@ for (const item of groups.good) line("挡掉✓", item);
 for (const item of groups.skippedFeed) line("不筛 ", item, `（${item.feed} 没配词表）`);
 
 const total = groups.kill.length + groups.keep.length + groups.waste.length + groups.good.length;
+
+// 默认源换掉之后，一个泛话题源都没有了，也就没有任何源配粗筛。
+// 这时候不该打印「误杀 0、通过」——那是把「没检查」说成「检查没问题」，
+// 而且会用一份全零的凭证盖掉上一次真实的回放结果。
+if (!total) {
+  console.log(`
+  现在没有任何源配了粗筛，没什么可回放的。
+  这不是通过，是没检查：默认源已经换成关键词订阅，筛的动作挪到了抓取之前，
+  见 docs/decisions/014-oriented-sources.md。
+  如果你自己加了泛话题源并配了 prefilter，这里会重新有东西可查。
+`);
+  process.exit(0);
+}
+
 const judged = groups.keep.length + groups.waste.length;
-const saved = total ? Math.round(((total - judged) / total) * 100) : 0;
+const saved = Math.round(((total - judged) / total) * 100);
 
 console.log(`
   误杀         ${groups.kill.length}    ← 这三个数里只有它必须为 0
