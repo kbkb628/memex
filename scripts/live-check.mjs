@@ -92,16 +92,49 @@ async function main() {
 
   // ── 4. 它自己会醒：这一档最该验的其实是这个
   //
-  // 本地能验「排期 60 秒后 Alarm 真的叫醒它」，但那是 workerd 里的 job。
-  // 线上这一条只能验「job 排上了、下一次在什么时候」，因为没有耐心等一天。
-  // 说清楚它验到哪：排期存在 ≠ 到点真的醒过。这里只证明前者。
+  // 关键区别：「排期存在」和「到点真的醒过」是两件事。
+  // 第一次跑这个脚本时实例刚部署，`last` 还是空的，只能验排期；
+  // 等那一轮真的到期执行之后，`last` 就有了内容 —— 那才是醒过的证据。
+  // 所以这里两条都写：有 last 就断言它，没有就看下一次够不够近、够近就等。
   const patrol = await http("/patrol");
-  check("/patrol 有下一次的时间", patrol.status === 200 && typeof patrol.body.next === "number", `next=${patrol.body.next}`);
-  if (typeof patrol.body.next === "number") {
-    const mins = Math.round((patrol.body.next - Date.now()) / 60000);
-    step("下一次巡检", `${mins} 分钟后`);
-    check("下一次巡检排在未来", patrol.body.next > Date.now(), `${mins} 分钟`);
+  const next = patrol.body.next;
+  check("/patrol 有下一次的时间", patrol.status === 200 && typeof next === "number", `next=${next}`);
+
+  const last = patrol.body.last;
+  if (last && typeof last.at === "number") {
+    check("上一轮巡检真的执行过", last.at <= Date.now(), new Date(last.at).toISOString());
+    step("上一次巡检", {
+      at: new Date(last.at).toISOString(),
+      scanned: last.scanned,
+      retried: (last.retried ?? []).length,
+      stuck: (last.stuck ?? []).length,
+      goals: (last.goals ?? []).length,
+    });
+  } else {
+    step("还没醒过", "这个实例部署后还没跑过巡检，只能验排期");
   }
+
+  if (typeof next === "number") {
+    const waitMs = next - Date.now();
+    step("下一次巡检", waitMs > 0 ? `${Math.round(waitMs / 1000)} 秒后` : "已过期");
+    check("下一次巡检排在未来", waitMs > 0, `${Math.round(waitMs / 1000)} 秒`);
+
+    // 三分钟内到期就等 —— 这是唯一能在一个 workflow 里看到「到点真的醒」的机会。
+    // 更远的不等：巡检一天一次，等不起，也不该假装验过。
+    if (waitMs > 0 && waitMs < 180_000) {
+      step("等它自己醒", `${Math.round(waitMs / 1000)} 秒`);
+      await sleep(waitMs + 8_000);
+      const after = await http("/patrol");
+      const woke = after.body.last;
+      check("到点真的醒过", !!woke && typeof woke.at === "number" && woke.at >= next - 3_000, woke ? new Date(woke.at).toISOString() : "last 还是空");
+      check(
+        "醒过之后自己排了下一轮",
+        typeof after.body.next === "number" && after.body.next > Date.now() + 60_000,
+        `${Math.round((after.body.next - Date.now()) / 60000)} 分钟后`,
+      );
+    }
+  }
+
 
   // ── 5. 真跑一个任务：提交、拿回执、等它自己跑完
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
