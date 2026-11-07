@@ -20,6 +20,10 @@ on:
         description: 跳过目标那一节（线上还是旧版本时用）
         type: boolean
         default: false
+      migrate_sources:
+        description: 把线上的源换成代码里的默认源（只在改过默认源时给一次 true）
+        type: boolean
+        default: false
 
 jobs:
   live:
@@ -32,6 +36,15 @@ jobs:
 
       # 不用 npm ci：脚本只用 node 自带的 fetch，不碰依赖。
       # 少一步依赖安装，这一档就少一种「因为装不上所以没验」的失败方式。
+      # 默认源只在第一次开机写进 cfg:feeds，之后改了代码也不会变。
+      # 这一步给的就是「够不到那台机器时，怎么把源换掉」的办法。
+      - name: 换源
+        if: ${{ inputs.migrate_sources }}
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+        run: node scripts/sources.mjs --drop https://hnrss.org/frontpage --add-defaults
+
       - name: 从公网打线上实例
         env:
           BASE: ${{ inputs.base }}
