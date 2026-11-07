@@ -285,7 +285,7 @@ DoH 查真实值         → 173.255.209.47
 | **加源不吃历史** | 接入一个有 20 条的源 → `baseline: 20`，立刻跑一轮 → `fresh: 0`，预算仍是 0 |
 | **只提交真正新的** | 源从 3 条变 5 条 → `fresh: 2, submitted: 2`，原有 3 条一条没动 |
 | **跳过留痕** | `?all=1` 里能看到被判 SKIP 的条目和它的理由，而不是「收件箱是空的」 |
-| **粗筛不误杀** | 29 条已有判断回放 → 误杀 0、放行且有关 7、白放 16、正确挡掉 6，省掉 21% 的调用 → [receipts/prefilter.json](receipts/prefilter.json)，重跑用 `node scripts/prefilter-check.mjs` |
+| **粗筛不误杀** | 33 条已有判断回放 → 误杀 0、放行且有关 9、白放 16、正确挡掉 6，省掉 19% 的调用 → [receipts/prefilter.json](receipts/prefilter.json)，重跑用 `node scripts/prefilter-check.mjs` |
 | **粗筛真的省下调用** | 一天 11 条新的 → `prefiltered: 9, submitted: 2`，预算只从 20 涨到 22；下一轮 `fresh: 0`（挡掉的已记进 seen） |
 | **目标判得对** | 37 条断言：解析、归一化、四个出口、指纹比对，全部纯逻辑不花钱 → `node scripts/goal-check.mjs` |
 | **条件不满足会自己再来一轮** | 同一目标：`r1 met=[false]` → 起 `r2` → `r2 met=[true]` → `done`；两次的答案都留在 `rounds` 里 |
