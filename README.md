@@ -130,6 +130,17 @@ printf '一串随机十六进制' | npx wrangler secret put ACCESS_TOKENS
 
 绑自定义域名之后走的是 Cloudflare 的 anycast 入口，不走 `workers.dev` 那条被污染的路。这也是「一个免费账号就能跑」这句话在国内唯一需要额外花钱的地方，所以单独写出来。
 
+还有一种更糟的情况：**整条线路都到不了 Cloudflare，不只是 DNS 坏了。** 判断方法是绕过 DNS 直接打真实 IP：
+
+```
+# 先查真实地址（本地 DNS 不可信时用 DoH）
+curl -s "https://dns.alidns.com/resolve?name=<你的域名>&type=A"
+# 再指定 IP 直连
+curl --noproxy '*' --resolve <你的域名>:443:<上面查到的 IP> https://<你的域名>/health
+```
+
+如果这一步也超时，换几个边缘段（`104.16.` / `172.67.` / `162.159.` / `188.114.`）都是 000，那绑域名也没用 —— 得换网络。这个项目自己的线上验收就是这么绕过去的：不从本机打，从公网 runner 打，见 [013](docs/decisions/013-live-verification.md)。
+
 ## 接口
 
 | 方法 | 路径 | 作用 |
@@ -200,13 +211,17 @@ scripts/
   receipt.mjs  跑一个真实场景，把每一步写进 receipts/
   prefilter-check.mjs  用已有的判断结果反过来检验粗筛词表，误杀必须为 0
   goal-check.mjs       目标判定的自检：纯逻辑，不调模型
+  live-check.mjs       线上档：只发 HTTP，打已经部署的那个实例
+.github/workflows/
+  ci.yml       每次 push 类型检查
+  live.yml     手动触发，从公网 runner 验线上那一份
 receipts/      真跑出来的凭证，不是人写的；sabotage-* 是故意跑红的那份
 _shelved/      归档的旧实现（记忆层、五层提示词、memex 界面）
 docs/decisions/ 架构决策记录
 docs/research/  调研笔记（哪些能借、哪些不能）
 ```
 
-## 十二个取舍
+## 十三个取舍
 
 - [001 · 一个 Durable Object，不做 Router / 隔离 Worker 两层](docs/decisions/001-single-durable-object.md)
 - [002 · 记忆分状态，只有人能把它升级为「已确认」](docs/decisions/002-memory-confirmation-state.md) —— 机制仍在，代码已归档
@@ -220,23 +235,42 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 - [010 · 开箱就有三个源，但基线一条都不提交](docs/decisions/010-default-feeds.md)
 - [011 · 粗筛放在模型之前，因为它错不起](docs/decisions/011-prefilter-before-model.md)
 - [012 · 完成条件只能由人写，而且只认机器验得动的那几条](docs/decisions/012-completion-criteria.md)
+- [013 · 线上那一档从公网发起，因为开发机根本到不了那里](docs/decisions/013-live-verification.md)
 
 ## 验到哪儿了
 
-诚实分档，不掺水。**带链接的那三条不是描述，是 `node scripts/receipt.mjs <场景>` 当场跑出来的文件**——脚本自己拉起 wrangler dev，自己在半路杀掉 workerd，再把服务和检查跑完，把每一步的耗时和结果写进 `receipts/`。
+诚实分档，不掺水。**带链接的那些不是描述，是脚本当场跑出来的文件**——`receipt.mjs` 自己拉起 wrangler dev、自己在半路杀掉 workerd，再把服务和检查跑完；`live-check.mjs` 从公网打已经部署的那一份。每一步的耗时和结果都在 `receipts/` 里。
 
-先说清**哪一档没验过**，因为把不同档位混着说最容易让读者高估：
+先说清**每一档到底到没到**，因为把不同档位混着说最容易让读者高估：
 
 | 档 | 含义 | 我们到了没 |
 |---|---|---|
 | 本地 workerd + 真 provider | 真 key、真模型、真 SQLite、真杀掉进程，但跑在本机 | **到了**，见下面每条 |
 | 部署成功 | Worker 传上去了，版本号可查 | **到了**，`wrangler deploy` 过，但这一档**不等于验收** |
-| 部署后的真实请求 | 从公网打到那个实例，看到它自己醒、自己判 | **没到**。`*.workers.dev` 在国内被 DNS 污染（解析落到 `199.59.148.8`），这台机器和我的机器都到不了 |
+| 部署后的真实请求 | 从公网打到那个实例，看到它自己醒、自己判 | **到了**，但从 GitHub 的 runner 发起，不是我的机器 → [receipts/live.json](receipts/live.json)（17/17） |
 
-所以下面每一条都请按「本地 workerd 上验过」来读，不要读成「线上跑过」。这条分档是照 `helsome/OpenDot` 的验收文档写的——它四十三万行，云端验收状态到今天还是 Pending，理由和我们一样：**健康检查返回 200 不算验收。**
+**为什么线上那一档不是从我的机器打的。** 这台开发机到 Cloudflare 边缘是整体不通的，不是单个 IP 的问题：
+
+```
+本地 DNS 解析        → 108.160.165.212（污染值）
+DoH 查真实值         → 173.255.209.47
+--resolve 直连真实 IP → 15 秒超时
+另试五个边缘段 IP     → 104.16 / 172.67 / 162.159 / 188.114 / 104.24 全部 000
+本机代理             → 连 github.com 可以，workers.dev 直接 CONNECT 502
+```
+
+所以换个网络发起：`.github/workflows/live.yml` 手动触发，`scripts/live-check.mjs` 只发 HTTP，跑在公网的 runner 上。它和 `receipt.mjs` 验的是两件事——那个验「代码在 workerd 上活不活得下来」，这个验「部署出去的那一份在公网上真的能应答、真的能跑完任务」。**两件事都成立才算完整。**
+
+这一档里最实的一条是「它自己会醒」。第一次跑时实例刚部署，`/patrol` 只能给出排期（1 分钟后）；第二次跑读到 `last.at = 2026-11-07T10:54:53.125Z` —— 正好是那个排期到点的时刻，`scanned: 2`。**两份日志的时间戳对得上，这是醒过的证据，不是「排期存在」的转述。**
+
+剩下每一条都请按「本地 workerd 上验过」来读，不要读成「线上逐条都验过」——线上这一份只覆盖了 17 条主链路断言。这条分档是照 `helsome/OpenDot` 的验收文档写的：它四十三万行，云端验收状态到今天还是 Pending，理由和我们一样：**健康检查返回 200 不算验收。**
 
 | 验过 | 怎么验的 |
 |---|---|
+| **线上 · 公网能打到** | 从 GitHub runner 打 `/health` → 200，`/status` 不带 token → 401，带了 → 200 且返回模型名和预算 |
+| **线上 · 任务真的跑完** | 提交到 `done`，3391ms，答案就是问的那个年份；同 id 同文字重发 `accepted: false` 且落回同一条会话（29） |
+| **线上 · 目标能推** | 建一个带 `answer_contains` 的目标，第 1 轮 `done`，`pendingOp` 建完就有值 |
+| **线上 · 到点真的醒过** | 第一轮看到排期 1 分钟后；第二轮读到 `last.at = 2026-11-07T10:54:53.125Z`，`scanned: 2`，且 `next` 自己推到 24 小时后 → [receipts/live.json](receipts/live.json)（17/17），重跑用 `gh workflow run live.yml` |
 | 真实端到端 | 真 key，`deepseek-flash`，从提交到 `done` 拿到完整回答 |
 | 提交拿到回执、任务真的建了 | `POST /submit` 返回 `accepted: true`，立刻 `GET /op` 是 `running` |
 | **幂等** | 三次重发都 `accepted: false` 且落回原会话，整轮只多一条会话 → [receipts/idempotent.json](receipts/idempotent.json)（11/11） |
