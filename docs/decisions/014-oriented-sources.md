@@ -73,7 +73,19 @@ curl -X POST $BASE/feeds -H 'content-type: application/json' \
   -d '{"url":"https://hnrss.org/newest?q=%22durable+objects%22&points=20","label":"HN · durable objects","want":"..."}'
 ```
 
-删源会连带删掉那个源在收件箱里的条目（009），所以换源等于把「HN 首页的判断历史」一起清掉。这也是为什么换之前先跑一次 `prefilter-check` 并把结果存进 `receipts/prefilter.json` —— 那份凭证现在是这段历史的唯一痕迹。
+够不到那台机器的时候用 `scripts/sources.mjs`（列源 / 补默认源 / 按 URL 删一个），`live.yml` 里对应一个 `migrate_sources` 布尔输入。这次线上就是这么换的：
+
+```
+删掉 HN 首页，连带清掉 0 条收件箱条目
+  加上 HN · durable objects（基线 19 条，一条都不提交）
+  加上 HN · agent runtime（基线 9 条）
+  加上 HN · llm agent（基线 20 条）
+· 线上状态 — feeds: 5，19/19 仍然全绿
+```
+
+`--drop` 必须显式给 URL，不给就一个都不删：删源会连带删掉那个源在收件箱里的条目（009），这种能力不该藏在一个默认行为里。
+
+换源等于把「HN 首页的判断历史」一起清掉（这就是上面那句 0 条要写出来的原因：清了 0 条，说明那边本来就没判断过什么）。本地那台清掉了 31 条，所以换之前先跑了一次 `prefilter-check` 存进 `receipts/prefilter.json` —— 那份凭证现在是那段历史的唯一痕迹。
 
 ## 没做的事
 

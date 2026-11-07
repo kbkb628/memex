@@ -213,6 +213,7 @@ scripts/
   goal-check.mjs       目标判定的自检：纯逻辑，不调模型
   feed-check.mjs       抓取层的自检：5xx 重试一次、4xx 不重试（本地桩，不碰网络）
   live-check.mjs       线上档：只发 HTTP，打已经部署的那个实例
+  sources.mjs          列源 / 补默认源 / 按 URL 删一个（够不到的实例靠它换源）
 .github/workflows/
   ci.yml       每次 push 类型检查
   live.yml     手动触发，从公网 runner 验线上那一份
@@ -270,7 +271,7 @@ DoH 查真实值         → 173.255.209.47
 | 验过 | 怎么验的 |
 |---|---|
 | **线上 · 公网能打到** | 从 GitHub runner 打 `/health` → 200，`/status` 不带 token → 401，带了 → 200 且返回模型名和预算 |
-| **线上 · 任务真的跑完** | 提交到 `done`，3391ms，答案就是问的那个年份；同 id 同文字重发 `accepted: false` 且落回同一条会话（29） |
+| **线上 · 任务真的跑完** | 提交到 `done`，3391ms，答案就是问的那个年份；同 id 同文字重发 `accepted: false` 且落回同一条会话（73） |
 | **线上 · 目标能推** | 建一个带 `answer_contains` 的目标，第 1 轮 `done`，`pendingOp` 建完就有值 |
 | **线上 · 部署的不是旧版本** | 线上返回的 `/` 和仓库里 `public/index.html` 逐字节相同（`sha256 1d0a642f2027…`，18677 字节）。它抓的是「改完页面忘了重新部署」——那种坏法下所有接口断言照样全绿，因为它们不打页面 |
 | **线上 · 到点真的醒过** | 第一轮看到排期 1 分钟后；第二轮读到 `last.at = 2026-11-07T10:54:53.125Z`，`scanned: 2`，且 `next` 自己推到 24 小时后 → [receipts/live.json](receipts/live.json)（19/19），重跑用 `gh workflow run live.yml` |
