@@ -1,0 +1,48 @@
+name: live
+
+# 线上档：从公网 runner 打已经部署的那个实例。
+#
+# 为什么不在自己的机器上跑：这台开发机到 Cloudflare 边缘是整体不通的 ——
+# 本地 DNS 把 *.workers.dev 污染到 108.160.165.212，绕过 DNS 直接打真实 IP
+# 173.255.209.47 也超时，另外试的五个边缘 IP 全是 000。所以「部署后的真实请求」
+# 这一档只能换个网络发起，而 runner 就是现成的公网发起方。
+#
+# 手动触发，不进 push 流程：它打的是线上实例、会花真 token，不该每次提交都跑。
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 线上地址（不带 token）
+        required: false
+        default: https://personal-agent.kbkb628.workers.dev
+      skip_goal:
+        description: 跳过目标那一节（线上还是旧版本时用）
+        type: boolean
+        default: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # 不用 npm ci：脚本只用 node 自带的 fetch，不碰依赖。
+      # 少一步依赖安装，这一档就少一种「因为装不上所以没验」的失败方式。
+      - name: 从公网打线上实例
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+          SKIP_GOAL: ${{ inputs.skip_goal && '1' || '0' }}
+          OUT: receipts/live.json
+        run: node scripts/live-check.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-receipt
+          path: receipts/live.json
+          if-no-files-found: warn
