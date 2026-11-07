@@ -53,6 +53,21 @@
 </section>
 
 <section>
+  <div class="sec-head">
+    <span>它还在推进什么</span>
+    <span class="meta" id="goals-meta">读不到</span>
+  </div>
+  <div id="goals"></div>
+  <details>
+    <summary>交给它一件要做几轮的事</summary>
+    <input id="goal-objective" placeholder="目标：一句话说清做成什么样">
+    <input id="goal-criteria" placeholder="完成条件，一行一条。要机器验的写成 answer_contains:那句话">
+    <button id="goal-add">开始</button>
+    <div class="meta" id="goal-msg" style="margin-top:8px"></div>
+  </details>
+</section>
+
+<section>
   <textarea id="in" rows="3" placeholder="说一句话"></textarea>
   <button id="send">发送</button>
   <div id="ops"></div>
@@ -272,7 +287,168 @@
     poll(operationId);
   }
 
+  // ── 目标：一句话说不完的事 ────────────────────────────────
+  //
+  // 页面上最重要的一行不是「已完成」，是每一条条件后面的那个 ✓ 或 ·。
+  // 模型的答案只有一份，而条件是判定它做完没有的依据 —— 把条件摆出来，
+  // 人才有办法发现「它说做完了，但其实只满足了第一条」。
+  const GOAL_STATE = {
+    running: "推进中",
+    waiting: "等人确认",
+    done: "已完成",
+    failed: "停下来了",
+    cancelled: "已叫停",
+  };
+
+  async function goalAction(path, id, extra = {}) {
+    const res = await api(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, ...extra }),
+    }).catch(() => null);
+    if (!res) return null;
+    return await res.json().catch(() => ({}));
+  }
+
+  async function loadGoals() {
+    const box = $("#goals");
+    const res = await api("/goals").catch(() => null);
+    if (!res || !res.ok) {
+      $("#goals-meta").textContent = res && res.status === 401 ? "这个链接没有 token" : "连不上";
+      return;
+    }
+    const body = await res.json().catch(() => ({}));
+    const goals = body.goals || [];
+    const open = goals.filter((g) => g.status === "running" || g.status === "waiting").length;
+    $("#goals-meta").textContent = goals.length ? `${open} 个在推 / 共 ${goals.length} 个` : "没有";
+
+    box.innerHTML = "";
+    if (!goals.length) {
+      box.innerHTML = '<div class="empty">没有目标。发一句话让它做一件一句话说不完的事。</div>';
+      return;
+    }
+    for (const g of goals) box.appendChild(goalCard(g));
+  }
+
+  function goalCard(g) {
+    const el = document.createElement("div");
+    el.className = "note";
+
+    const row = document.createElement("div");
+    row.className = "row";
+    const h = document.createElement("h3");
+    h.textContent = g.objective;
+    row.appendChild(h);
+
+    const badge = document.createElement("span");
+    badge.className = "meta";
+    badge.textContent = GOAL_STATE[g.status] || g.status;
+    row.appendChild(badge);
+    el.appendChild(row);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.style.marginTop = "6px";
+    meta.textContent = `第 ${g.runs}/${g.maxRuns} 轮 · 指纹 ${g.digest}`;
+    el.appendChild(meta);
+
+    for (const c of g.criteria) {
+      const line = document.createElement("p");
+      line.style.fontSize = "13px";
+      // 机械条件验的是「有没有提」，人工条件验的是「说得对不对」。
+      // 两种混在一个列表里，所以要标出来 —— 不然人会以为 ✓ 等于「对了」。
+      const mark = c.ok ? "✓" : c.met === false ? "✗" : "·";
+      const how = c.kind === "answer_contains" ? "机器验" : c.confirmed ? "已确认" : "要你看";
+      line.textContent = `${mark} ${c.raw.replace(/^answer_contains[:：]\s*/i, "")}　(${how})`;
+      el.appendChild(line);
+
+      if (c.kind === "human" && !c.confirmed && g.status === "waiting") {
+        const btn = document.createElement("button");
+        btn.textContent = "这条我看过了";
+        btn.style.margin = "4px 0 0";
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          await goalAction("/goals/confirm", g.id, { index: c.index });
+          loadGoals();
+        });
+        el.appendChild(btn);
+      }
+    }
+
+    if (g.endedWhy) {
+      const why = document.createElement("div");
+      why.className = "meta";
+      why.style.marginTop = "6px";
+      why.textContent = g.endedWhy;
+      el.appendChild(why);
+    }
+
+    const last = g.rounds[g.rounds.length - 1];
+    if (last && last.answer) {
+      const p = document.createElement("p");
+      p.textContent = last.answer;
+      el.appendChild(p);
+    }
+
+    if (g.status === "running" || g.status === "waiting") {
+      const bar = document.createElement("div");
+      bar.style.marginTop = "8px";
+
+      const push = document.createElement("button");
+      push.textContent = "现在推一轮";
+      push.addEventListener("click", async () => {
+        push.disabled = true;
+        const next = await goalAction("/goals/advance", g.id);
+        loadGoals();
+        if (next && next.note) $("#goal-msg").textContent = next.note;
+      });
+      bar.appendChild(push);
+
+      const stop = document.createElement("button");
+      stop.textContent = "叫停";
+      stop.style.marginLeft = "8px";
+      stop.addEventListener("click", async () => {
+        stop.disabled = true;
+        await goalAction("/goals/cancel", g.id);
+        loadGoals();
+      });
+      bar.appendChild(stop);
+      el.appendChild(bar);
+    }
+    return el;
+  }
+
+  async function addGoal() {
+    const objective = $("#goal-objective").value.trim();
+    const criteria = $("#goal-criteria").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (!objective) return;
+    if (!criteria.length) {
+      $("#goal-msg").textContent = "至少要有一条完成条件。没有条件的目标永远不会「做完」。";
+      return;
+    }
+    $("#goal-add").disabled = true;
+    $("#goal-msg").textContent = "正在起第一轮…";
+
+    const res = await api("/goals", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ objective, criteria }),
+    }).catch(() => null);
+    $("#goal-add").disabled = false;
+
+    if (!res) { $("#goal-msg").textContent = "网络失败"; return; }
+    if (res.status === 401) { $("#goal-msg").textContent = "这个链接没有 token"; return; }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { $("#goal-msg").textContent = body.error || ("失败 " + res.status); return; }
+
+    $("#goal-objective").value = "";
+    $("#goal-criteria").value = "";
+    $("#goal-msg").textContent = "已经起了第一轮，跑完这里会自己更新。";
+    loadGoals();
+  }
+
   $("#send").addEventListener("click", send);
+  $("#goal-add").addEventListener("click", addGoal);
   $("#feed-add").addEventListener("click", addFeed);
   $("#in").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
@@ -281,8 +457,9 @@
   // 页面重开时，把还没结果的回执接着问一遍 —— 这就是「关掉也不丢」在界面上那一半。
   list().forEach(poll);
   loadInbox();
+  loadGoals();
   // 它会在后台自己醒。页面开着的话，一分钟看一次有没有新东西进来。
-  setInterval(loadInbox, 60000);
+  setInterval(() => { loadInbox(); loadGoals(); }, 60000);
 </script>
 </body>
 </html>

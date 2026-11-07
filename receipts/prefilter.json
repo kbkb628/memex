@@ -1,15 +1,15 @@
 {
   "kind": "memex.prefilter",
-  "when": "2026-11-06T11:24:16.967Z",
+  "when": "2026-11-07T08:14:38.349Z",
   "passed": true,
-  "replayed": 16,
+  "replayed": 31,
   "counted": {
     "kill": 0,
-    "keep": 5,
-    "waste": 4,
+    "keep": 7,
+    "waste": 16,
     "good": 6
   },
-  "savedPercent": 40,
+  "savedPercent": 21,
   "feeds": [
     {
       "label": "Cloudflare 博客",
@@ -27,19 +27,39 @@
   "kill": [],
   "keep": [
     {
-      "title": "App Store 2026 in numbers: AI, pricing, abandoned apps",
-      "link": "https://obelisk.club/research/app-store-2026",
+      "title": "ChatGPT silently passes data between connectors and the bounty wants an ID card",
+      "link": "https://community.openai.com/t/security-follow-up-tool-call-silently-routed-to-a-different-connector/1413053",
       "feed": "HN 首页",
       "hits": [
+        "openai"
+      ]
+    },
+    {
+      "title": "GitHub's new Git storage architecture",
+      "link": "https://github.blog/engineering/architecture-optimization/inside-githubs-new-git-storage-architecture/",
+      "feed": "HN 首页",
+      "hits": [
+        "storage"
+      ]
+    },
+    {
+      "title": "Show HN: Agentic Identity Broker, OAuth Delegation for AI Agents",
+      "link": "https://github.com/zalando-incubator/agentic-identity-broker",
+      "feed": "HN 首页",
+      "hits": [
+        "agents",
+        "agentic",
         "ai"
       ]
     },
     {
-      "title": "I struggle to believe that AI R&D is ingenious",
-      "link": "https://www.lesswrong.com/posts/DALNiKBjMGMF8grme/arjun-panickssery-s-shortform?commentId=fJtaHHHfx45tD7BSL",
+      "title": "AI for scientific discovery: How researchers use Claude",
+      "link": "https://www.anthropic.com/research/how-researchers-use-claude",
       "feed": "HN 首页",
       "hits": [
-        "ai"
+        "ai",
+        "claude",
+        "anthropic"
       ]
     },
     {
@@ -69,6 +89,105 @@
     }
   ],
   "waste": [
+    {
+      "title": "AI is dramatically accelerating AI research",
+      "link": "https://www.planned-obsolescence.org/p/ai-is-dramatically-accelerating-ai",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Google has acquired Crusoe's data center site in southeast Wyoming",
+      "link": "https://www.crusoe.ai/resources/newsroom/crusoe-wyoming-data-center-campus-update",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "A Jev that can ask Opus for help gives Opus accuracy at 4x lower cost",
+      "link": "https://hightouch.com/blog/llm-judges-identity-resolution",
+      "feed": "HN 首页",
+      "hits": [
+        "llm"
+      ]
+    },
+    {
+      "title": "Firecracker VM Escape: PwnEscape Part 2",
+      "link": "https://pwn.ai/blog/firecracker-escape",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Memorilla: Latent Semantic Memory for LLMs",
+      "link": "https://arxiv.org/abs/2610.21375",
+      "feed": "HN 首页",
+      "hits": [
+        "llms"
+      ]
+    },
+    {
+      "title": "Perplexity launches AI agents for work",
+      "link": "https://www.perplexity.ai/en-GB/hub/blog/teammates-are-agents-for-complex-ongoing-work",
+      "feed": "HN 首页",
+      "hits": [
+        "agents",
+        "ai"
+      ]
+    },
+    {
+      "title": "UpCodes (YC S17) is hiring SDR's to sell AI compliance software",
+      "link": "https://up.codes/careers?utm_source=HN",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Anthropic IPO buyers see valuation as low as $1.1T",
+      "link": "https://www.bloomberg.com/news/articles/2026-11-06/anthropic-ipo-valuation-expectations-pressured-after-ai-rout",
+      "feed": "HN 首页",
+      "hits": [
+        "ai",
+        "anthropic"
+      ]
+    },
+    {
+      "title": "University libraries are being swarmed by AI bots, putting public access at risk",
+      "link": "https://www.cbc.ca/news/world/university-libraries-ai-data-scraping-bots-9.7408287",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "Gemini Omni 1.2 Flash",
+      "link": "https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemini-omni-1-2-flash/",
+      "feed": "HN 首页",
+      "hits": [
+        "ai",
+        "gemini"
+      ]
+    },
+    {
+      "title": "App Store 2026 in numbers: AI, pricing, abandoned apps",
+      "link": "https://obelisk.club/research/app-store-2026",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
+    {
+      "title": "I struggle to believe that AI R&D is ingenious",
+      "link": "https://www.lesswrong.com/posts/DALNiKBjMGMF8grme/arjun-panickssery-s-shortform?commentId=fJtaHHHfx45tD7BSL",
+      "feed": "HN 首页",
+      "hits": [
+        "ai"
+      ]
+    },
     {
       "title": "Nvidia Kubernetes Engine (NVKE)",
       "link": "https://github.com/dsx-ai-factory/nvke",

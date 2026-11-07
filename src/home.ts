@@ -7,6 +7,17 @@ import { buildModels } from "./models";
 import { systemExtension } from "./prompts";
 import { webExtension } from "./tools";
 import {
+  decide,
+  goalDigest,
+  judge,
+  MAX_CRITERIA,
+  MAX_ROUNDS,
+  parseCriteria,
+  promptForGoal,
+  satisfied,
+  type Goal,
+} from "./goal";
+import {
   DEFAULT_FEEDS,
   fetchFeed,
   hash as hashId,
@@ -219,6 +230,8 @@ type PatrolReport = {
   retried: string[];
   /** 还在 pending 里、但已经很久没动，只记录不动手。 */
   stuck: string[];
+  /** 这一轮巡检推进过的目标：id、推进前状态、这一次的结论。 */
+  goals: { id: string; from: Goal["status"]; note: string; status: Goal["status"] }[];
 };
 
 /**
@@ -310,6 +323,11 @@ export class Home extends DurableObject<Env> {
       if (path === "/inbox/read" && request.method === "POST") return await this.markRead(request);
       if (path === "/ingest" && request.method === "GET") return await this.ingestReport();
       if (path === "/ingest/run" && request.method === "POST") return await this.ingestNow();
+      if (path === "/goals" && request.method === "GET") return await this.listGoals(url.searchParams.get("id"));
+      if (path === "/goals" && request.method === "POST") return await this.createGoal(request);
+      if (path === "/goals/advance" && request.method === "POST") return await this.goalAction(request, "advance");
+      if (path === "/goals/confirm" && request.method === "POST") return await this.goalAction(request, "confirm");
+      if (path === "/goals/cancel" && request.method === "POST") return await this.goalAction(request, "cancel");
       if (path === "/" || path === "/health") return new Response("ok");
       return new Response("not found", { status: 404 });
     } catch (error) {
@@ -426,7 +444,13 @@ export class Home extends DurableObject<Env> {
    */
   private async patrol(): Promise<PatrolReport> {
     const entries = await this.ctx.storage.list<Note>({ prefix: "op:" });
-    const report: PatrolReport = { at: Date.now(), scanned: entries.size, retried: [], stuck: [] };
+    const report: PatrolReport = {
+      at: Date.now(),
+      scanned: entries.size,
+      retried: [],
+      stuck: [],
+      goals: [],
+    };
 
     const bySession = new Map<string, Note[]>();
     for (const note of entries.values()) {
@@ -455,6 +479,22 @@ export class Home extends DurableObject<Env> {
           report.stuck.push(`${item.operationId} ${item.status}`);
         }
       }
+    }
+
+    // 目标也在这里推一把。
+    //
+    // 为什么放在巡检里而不是每个任务结算后：一轮结束了不代表该马上起下一轮 ——
+    // 中间可能有一个人还没看那轮的答案。巡检是一天一次的自然节拍，比「结算即推进」稳，
+    // 而且它不受「这一轮有没有被页面轮询看到过」影响。
+    //
+    // 一次最多推三个：dispatch 有预算，目标是慢的，一次推完不现实。
+    const open = [...(await this.ctx.storage.list<Goal>({ prefix: "goal:" })).values()]
+      .filter((g) => g.status === "running" || g.status === "waiting")
+      .slice(0, 3);
+    for (const goal of open) {
+      const { goal: next, note } = await this.advanceGoal(goal);
+      report.goals.push({ id: goal.id, from: goal.status, note, status: next.status });
+      if (next !== goal) await this.ctx.storage.put(`goal:${goal.id}`, next);
     }
 
     return report;
@@ -1065,6 +1105,292 @@ export class Home extends DurableObject<Env> {
     });
 
     return { operationId, session: session.id, accepted: receipt.accepted };
+  }
+
+  // ---- 目标（多轮才做完的事）------------------------------------------------
+  //
+  // 三种入口共用同一段推进逻辑：`/goals/advance`、`/goals/confirm`、`/goals/cancel`。
+  // 分开写三份会让「判定一次目标」散在三个地方，而这三处最容易不一致 ——
+  // 不一致的后果是把「没做完」判成「做完了」，且永远暴露不出来。
+
+  private async readGoal(id: string): Promise<Goal | undefined> {
+    return await this.ctx.storage.get<Goal>(`goal:${id}`);
+  }
+
+  /**
+   * 每一轮开跑前的那道闸：目标还是创建时那一个吗？
+   *
+   * 这是整套「不偏移」里唯一真正起作用的一行。轮次之间模型看不到彼此的对话，
+   * 所以它不会「自己慢慢漂」；会漂的是**我们这边**——目标被改了、条件被改了，
+   * 而某一轮还拿着旧回执在跑。比对的是 digest，不是语义：差一个字节就不跑。
+   * 不调模型，不花 token。
+   */
+  private async goalIntact(goal: Goal): Promise<boolean> {
+    return (await goalDigest(goal.objective, goal.criteria)) === goal.digest;
+  }
+
+  /** 对外看的样子：条件、判定、当前状态，一次给全。 */
+  private async goalView(goal: Goal) {
+    const criteria = parseCriteria(goal.criteria);
+    const last = goal.rounds[goal.rounds.length - 1];
+    // 还没结算过一轮时 `met` 是 undefined，不能写成 false ——
+    // 「还没判」和「判了没中」在页面上是两件事，混成一个会让一个刚建的目标
+    // 看起来像已经失败了一次。
+    const met = last?.met;
+    const ok = satisfied(criteria, met ?? [], goal.confirmed ?? []);
+    return {
+      id: goal.id,
+      objective: goal.objective,
+      status: goal.status,
+      digest: goal.digest,
+      runs: goal.runs,
+      maxRuns: goal.maxRuns,
+      createdAt: goal.createdAt,
+      endedWhy: goal.endedWhy,
+      pendingOp: goal.currentOp,
+      criteria: criteria.map((c, i) => ({
+        index: i,
+        raw: c.raw,
+        kind: c.kind,
+        met: c.kind === "answer_contains" && met ? met[i] === true : undefined,
+        confirmed: (goal.confirmed ?? []).includes(i),
+        ok: ok[i],
+      })),
+      rounds: goal.rounds.map((r) => ({
+        op: r.op,
+        at: r.at,
+        answer: (r.answer ?? "").slice(0, 2000),
+        met: r.met,
+      })),
+    };
+  }
+
+  private async listGoals(id: string | null): Promise<Response> {
+    if (id) {
+      const goal = await this.readGoal(id);
+      if (!goal) return Response.json({ error: "not found" }, { status: 404 });
+      return Response.json(await this.goalView(goal));
+    }
+    const all = await this.ctx.storage.list<Goal>({ prefix: "goal:" });
+    const views = await Promise.all([...all.values()].map((g) => this.goalView(g)));
+    return Response.json({
+      goals: views.sort((a, b) => b.createdAt - a.createdAt),
+      open: views.filter((g) => g.status === "running" || g.status === "waiting").length,
+    });
+  }
+
+  private async createGoal(request: Request): Promise<Response> {
+    if (!this.setup.ready) {
+      return Response.json({ error: "模型还没配好，建了也跑不起来。" }, { status: 503 });
+    }
+    const body = await request.json<{ objective?: string; criteria?: string[] | string; maxRuns?: number }>();
+    const objective = (body.objective ?? "").trim();
+    if (!objective) return Response.json({ error: "objective is required" }, { status: 400 });
+
+    const raw = Array.isArray(body.criteria)
+      ? body.criteria
+      : String(body.criteria ?? "").split(/[\n；;]+/);
+    // 去重但不排序：人写条件的顺序就是判定的顺序，回执里要能对上。
+    const criteria: string[] = [];
+    for (const line of raw) {
+      const text = String(line).trim();
+      if (text && !criteria.includes(text)) criteria.push(text);
+    }
+
+    // 没有完成条件的目标不是目标，是一个会一直跑到没预算的循环。
+    // 拒绝创建比让它跑更诚实 —— 跑起来之后没有任何东西能叫停它。
+    if (!criteria.length) {
+      return Response.json(
+        { error: "至少要有一条完成条件。没有条件的目标永远不会「做完」。" },
+        { status: 400 },
+      );
+    }
+    if (criteria.length > MAX_CRITERIA) {
+      return Response.json(
+        { error: `最多 ${MAX_CRITERIA} 条条件。写得出四条以上的，通常是四件事被写在了一起 —— 拆开比让它推六轮更接近做完。` },
+        { status: 400 },
+      );
+    }
+
+    const now = Date.now();
+    const id = hashId(`${objective}\n${now}`);
+    // 轮次上限可调，但只能往下调：六轮是「这件事最多值这么多」，不是一个起点。
+    const wanted = Math.floor(Number(body.maxRuns ?? MAX_ROUNDS));
+    const maxRuns = Number.isFinite(wanted) ? Math.min(Math.max(wanted, 1), MAX_ROUNDS) : MAX_ROUNDS;
+    const goal: Goal = {
+      id,
+      objective,
+      criteria,
+      digest: await goalDigest(objective, criteria),
+      status: "running",
+      runs: 1,
+      maxRuns,
+      createdAt: now,
+      rounds: [],
+    };
+
+    const started = await this.startGoalRound(goal);
+    if (!started.ok) {
+      // 起不来就别留一个永远 running 的壳 —— 那会让调用方以为它在跑。
+      return Response.json({ error: started.error }, { status: started.status });
+    }
+    await this.ctx.storage.put(`goal:${id}`, started.goal);
+    return Response.json({ ...(await this.goalView(started.goal)), submitted: started.op });
+  }
+
+  /**
+   * 起新一轮：把完整目标重新讲一遍，然后提交。
+   *
+   * 每一轮都是一个新 session，不带上一轮的对话 —— 这不是省事，是「不偏移」的实现：
+   * 目标如果靠对话历史传递，跑到第五轮时它已经稀释成一堆上下文里的一句了。
+   */
+  private async startGoalRound(
+    goal: Goal,
+  ): Promise<{ ok: true; goal: Goal; op: string } | { ok: false; error: string; status: number }> {
+    if (!(await this.goalIntact(goal))) {
+      // 走到这里说明存储里的目标在某一轮之间被动过了。不动手、不猜、不修，
+      // 直接判死并留下原因 —— 「继续跑」比「停下来」危险得多。
+      return { ok: false, error: "目标在轮次之间被改过（digest 不符），这一轮不跑了。", status: 409 };
+    }
+    if (goal.runs > goal.maxRuns) {
+      return { ok: false, error: `已经推了 ${goal.maxRuns} 轮，没有满足条件。`, status: 409 };
+    }
+
+    const op = `goal:${goal.id}:r${goal.runs}`;
+    const text = promptForGoal(goal, parseCriteria(goal.criteria));
+    const submitted = await this.submitText(text, op);
+    if (!submitted) return { ok: false, error: "模型还没配好。", status: 503 };
+    if (submitted.conflict) return { ok: false, error: submitted.conflict, status: 409 };
+
+    return { ok: true, goal: { ...goal, currentOp: op }, op };
+  }
+
+  /**
+   * 推进一个目标：先看这一轮跑完没有，跑完了就判，然后决定下一轮还是收尾。
+   *
+   * 顺序不能反。先开新一轮再判上一轮，会让每推一次就多欠一轮，
+   * 而「欠着的那一轮」在断电后没有任何人能说清它跑到哪了。
+   */
+  private async advanceGoal(goal: Goal): Promise<{ goal: Goal; note: string }> {
+    if (goal.status !== "running" && goal.status !== "waiting") {
+      return { goal, note: "已经结束了，不再推进。" };
+    }
+    if (!(await this.goalIntact(goal))) {
+      return {
+        goal: { ...goal, status: "failed", endedWhy: "目标在轮次之间被改过（digest 不符）。" },
+        note: "digest 不符，停。",
+      };
+    }
+
+    const criteria = parseCriteria(goal.criteria);
+    const confirmed = goal.confirmed ?? [];
+
+    // 在等人确认的时候不另起一轮。
+    //
+    // 「没做到」和「没人看」是两件事，混在一起会让这样的目标永远推下去：
+    // 机械条件早过了，人还没看，每一轮又开始跑，越跑越偏 —— 而没人发现自己本该点一下。
+    // 只有 `confirm` 会把状态改回 running，然后把这里放过去。
+    if (goal.status === "waiting" && !goal.currentOp) {
+      return { goal, note: "在等人确认，不起新一轮。" };
+    }
+
+    // 还有一轮在路上：问它跑完没有。没跑完就什么都不做 —— 不推测、不重投。
+    if (goal.currentOp) {
+      const note = await this.ctx.storage.get<Note>(`op:${goal.currentOp}`);
+      const session = note?.session ?? ROOT;
+      const live = (await this.harness.pending({ session })).find(
+        (p) => p.operationId === goal.currentOp,
+      );
+      if (live) return { goal, note: `第 ${goal.runs} 轮还在跑。` };
+
+      let answer = "";
+      try {
+        const result = await this.harness.wait(goal.currentOp, { session });
+        answer = result.text?.trim() ?? "";
+      } catch (error) {
+        answer = error instanceof Error ? error.message : String(error);
+      }
+
+      const met = judge(criteria, answer);
+      const rounds = [...goal.rounds, { op: goal.currentOp, at: Date.now(), answer, met }].slice(-3);
+      const next: Goal = { ...goal, rounds, currentOp: undefined };
+
+      // 三道闸门的后两道全在 decide 里，这里只执行它的结论。
+      const d = decide(criteria, met, confirmed, goal.runs, goal.maxRuns);
+      if (!d.nextRound) {
+        return { goal: { ...next, status: d.status, endedWhy: d.why }, note: d.why };
+      }
+
+      const advanced: Goal = { ...next, status: "running", runs: goal.runs + 1 };
+      const started = await this.startGoalRound(advanced);
+      if (!started.ok) {
+        return {
+          goal: { ...advanced, status: "failed", endedWhy: started.error },
+          note: started.error,
+        };
+      }
+      return { goal: started.goal, note: `第 ${goal.runs} 轮没满足，起第 ${advanced.runs} 轮。` };
+    }
+
+    // 手上没有在跑的轮次：按上一轮的判定决定「再来一轮」还是「到此为止」。
+    const d = decide(criteria, goal.rounds.at(-1)?.met ?? [], confirmed, goal.runs, goal.maxRuns);
+    if (!d.nextRound) {
+      return { goal: { ...goal, status: d.status, endedWhy: d.why }, note: d.why };
+    }
+    const started = await this.startGoalRound({ ...goal, status: "running", runs: goal.runs + 1 });
+    if (!started.ok) {
+      return { goal: { ...goal, status: "failed", endedWhy: started.error }, note: started.error };
+    }
+    return { goal: started.goal, note: `起第 ${goal.runs + 1} 轮。` };
+  }
+
+  private async goalAction(request: Request, action: "advance" | "confirm" | "cancel"): Promise<Response> {
+    const body = await request.json<{ id?: string; index?: number; all?: boolean }>();
+    const id = body.id?.trim();
+    if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+    const goal = await this.readGoal(id);
+    if (!goal) return Response.json({ error: "not found" }, { status: 404 });
+
+    if (action === "cancel") {
+      const done: Goal = { ...goal, status: "cancelled", endedWhy: "人叫停了。", currentOp: undefined };
+      await this.ctx.storage.put(`goal:${id}`, done);
+      return Response.json(await this.goalView(done));
+    }
+
+    let current = goal;
+    if (action === "confirm") {
+      // 只有真正拦住它的那条能确认：机械条件已经过了的，确认也没意义；
+      // 还没判过的（这轮没结算），确认了也不知道在确认哪一轮的答案。
+      const criteria = parseCriteria(current.criteria);
+      const met = current.rounds.at(-1)?.met ?? [];
+      // `all` 只勾人工条件：机械条件不需要人确认，把它们一起塞进来会让
+      // 「全部确认」这个按钮永远返回 400 —— 而按钮本身看着是完全合理的。
+      const targets = body.all
+        ? criteria.map((_, i) => i).filter((i) => criteria[i].kind === "human")
+        : [Number(body.index ?? -1)];
+      const confirmed = new Set(current.confirmed ?? []);
+      for (const i of targets) {
+        if (!Number.isInteger(i) || i < 0 || i >= criteria.length) {
+          return Response.json({ error: `index 要在 0..${criteria.length - 1} 之间` }, { status: 400 });
+        }
+        if (criteria[i].kind !== "human") {
+          return Response.json(
+            { error: `第 ${i + 1} 条是机械条件，由服务端验，不需要人确认。` },
+            { status: 400 },
+          );
+        }
+        if (met[i] === true) continue;
+        confirmed.add(i);
+      }
+      if (!current.rounds.length) {
+        return Response.json({ error: "这一轮还没结算，没有可确认的东西。" }, { status: 409 });
+      }
+      current = { ...current, confirmed: [...confirmed], status: "running" };
+    }
+
+    const { goal: next, note } = await this.advanceGoal(current);
+    await this.ctx.storage.put(`goal:${id}`, next);
+    return Response.json({ ...(await this.goalView(next)), note });
   }
 
   /**

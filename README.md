@@ -146,13 +146,23 @@ printf '一串随机十六进制' | npx wrangler secret put ACCESS_TOKENS
 | `POST` | `/inbox/read` | 标为已读：`{id}` 或 `{all:true}` |
 | `GET` | `/ingest` | 上一轮看了几个源、发现几条新的、预算还剩多少 |
 | `POST` | `/ingest/run` | 立刻看一轮，不用等 3 小时（和自动那轮走同一个函数） |
+| `GET` | `/goals?id=` | 建过的目标；带 `id` 给一个，每条条件附判定 |
+| `POST` | `/goals` | 建一个目标：`{objective, criteria[], maxRuns?}`。没条件或超过三条 → 400；建完立刻起第一轮 |
+| `POST` | `/goals/advance` | 推一次：这一轮跑完就判，没跑完就什么都不做 |
+| `POST` | `/goals/confirm` | 人工确认一条条件：`{id, index}` 或 `{all:true}`。确认机械条件是 400 |
+| `POST` | `/goals/cancel` | 叫停：`{id}` |
 
-**粗筛（`prefilter`）是可选的。** 它是一串词：抓取之后先用标题、链接、摘要开头过一遍，一个都没命中的连模型都不喂——不建任务、不占额度、不进收件箱，只在 `/ingest` 里报个数加几条样本。泛话题源（比如 HN 首页）配上它，一天能省掉一半以上的调用；已经筛过的源（个人博客、周刊）不该配，配了只会误杀。
+**粗筛（`prefilter`）是可选的。** 它是一串词：抓取之后先用标题、链接、摘要开头过一遍，一个都没命中的连模型都不喂——不建任务、不占额度、不进收件箱，只在 `/ingest` 里报个数加几条样本。泛话题源（比如 HN 首页）配上它，能挡掉完全不相干的那一大类；已经筛过的源（个人博客、周刊）不该配，配了只会误杀。
+
+**它只解决「完全不沾」，不解决「AI 领域的泛新闻」。** 累计样本上的真实省量是 21%，不是早期那批上的 82%：`Gemini Omni 1.2 Flash`、`Anthropic IPO 估值`、`某厂在招 AI 销售` 这类条目全都过得了词表，然后照样白花一次调用。这一版没做否定词，也没要求命中两个以上的词——先把白放里到底哪一类最多看清楚再改。
 
 改完词表之后跑一次 `node scripts/prefilter-check.mjs`：它拿收件箱里已有的判断当参照回放一遍，**误杀必须是 0**，否则退出码 2。误杀是这套东西里唯一不可见的错误——模型判错了理由还在，粗筛挡错了那条内容根本不会出现。
 
-回执长这样，它由 pi 在提交落盘之后才返回，所以拿到它就意味着任务已经存进去了：
+**目标（`/goals`）是一句话说不完的事。** 建目标要同时给完成条件，最多三条：写成 `answer_contains:某段话` 的由服务端把最终回答取来逐字核对，其余一律「要人看一眼」，**不做任何猜测性解析**。条件创建后冻结，每轮开跑前拿它的指纹和落盘那份比一次——差一个字节就停，不猜、不修、不继续跑。模型自己说「做完了」不算数；判定是一段纯函数，`node scripts/goal-check.mjs` 逐条钉着。
 
+必须说清它的能力边界：`answer_contains` 只防「模型根本没提这件事」。条件原文是写进提示词的，**实测拿一串不可能出现的字符当条件，模型一字不差地复述了出来，一轮就「满足」**。所以它只能当覆盖检查，不能当交付依据——真正兜底的还是人，这也是为什么人工条件是默认值而不是例外。
+
+回执长这样，它由 pi 在提交落盘之后才返回，所以拿到它就意味着任务已经存进去了：
 ```json
 { "operationId": "e4433004-…", "session": "52", "accepted": true, "at": 1793783607991 }
 ```
@@ -182,19 +192,21 @@ src/
   prompts.ts   一层提示词
   tools.ts     唯一的工具：fetch_url
   feeds.ts     订阅源：拉取、解析、预算、任务组装
+  goal.ts      目标的完成条件：解析、判定、指纹、每轮喂什么
   models.ts    模型装配，与部署平台解耦
 public/
   index.html   单文件界面，故意做得很丑
 scripts/
   receipt.mjs  跑一个真实场景，把每一步写进 receipts/
   prefilter-check.mjs  用已有的判断结果反过来检验粗筛词表，误杀必须为 0
+  goal-check.mjs       目标判定的自检：纯逻辑，不调模型
 receipts/      真跑出来的凭证，不是人写的；sabotage-* 是故意跑红的那份
 _shelved/      归档的旧实现（记忆层、五层提示词、memex 界面）
 docs/decisions/ 架构决策记录
 docs/research/  调研笔记（哪些能借、哪些不能）
 ```
 
-## 十一个取舍
+## 十二个取舍
 
 - [001 · 一个 Durable Object，不做 Router / 隔离 Worker 两层](docs/decisions/001-single-durable-object.md)
 - [002 · 记忆分状态，只有人能把它升级为「已确认」](docs/decisions/002-memory-confirmation-state.md) —— 机制仍在，代码已归档
@@ -207,6 +219,7 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 - [009 · 输入源只负责发现，判断交给任务；跳过必须留痕](docs/decisions/009-feeds-and-budget.md)
 - [010 · 开箱就有三个源，但基线一条都不提交](docs/decisions/010-default-feeds.md)
 - [011 · 粗筛放在模型之前，因为它错不起](docs/decisions/011-prefilter-before-model.md)
+- [012 · 完成条件只能由人写，而且只认机器验得动的那几条](docs/decisions/012-completion-criteria.md)
 
 ## 验到哪儿了
 
@@ -237,8 +250,13 @@ docs/research/  调研笔记（哪些能借、哪些不能）
 | **加源不吃历史** | 接入一个有 20 条的源 → `baseline: 20`，立刻跑一轮 → `fresh: 0`，预算仍是 0 |
 | **只提交真正新的** | 源从 3 条变 5 条 → `fresh: 2, submitted: 2`，原有 3 条一条没动 |
 | **跳过留痕** | `?all=1` 里能看到被判 SKIP 的条目和它的理由，而不是「收件箱是空的」 |
-| **粗筛不误杀** | 15 条已有判断回放 → 误杀 0、放行且有关 5、白放 4、正确挡掉 6，省掉 40% 的调用 → [receipts/prefilter.json](receipts/prefilter.json)，重跑用 `node scripts/prefilter-check.mjs` |
+| **粗筛不误杀** | 29 条已有判断回放 → 误杀 0、放行且有关 7、白放 16、正确挡掉 6，省掉 21% 的调用 → [receipts/prefilter.json](receipts/prefilter.json)，重跑用 `node scripts/prefilter-check.mjs` |
 | **粗筛真的省下调用** | 一天 11 条新的 → `prefiltered: 9, submitted: 2`，预算只从 20 涨到 22；下一轮 `fresh: 0`（挡掉的已记进 seen） |
+| **目标判得对** | 37 条断言：解析、归一化、四个出口、指纹比对，全部纯逻辑不花钱 → `node scripts/goal-check.mjs` |
+| **条件不满足会自己再来一轮** | 同一目标：`r1 met=[false]` → 起 `r2` → `r2 met=[true]` → `done`；两次的答案都留在 `rounds` 里 |
+| **轮次用尽就停，不会一直跑** | 这一条是纯逻辑断言（第 6 轮仍不满足 → `failed` 并写下原因），端到端**没跑过**：条件原文会进提示词，模型连「不可能出现的字符串」都能照抄，很难在真环境里造出「机械条件持续不满足」 |
+| **只差人确认时不会判死** | 机械条件过了、人工条件没确认 → `waiting`（轮次用尽也还是 `waiting`）；`confirm` 机械条件 → 400；`confirm` 人工条件 → `done` |
+| **没有条件的目标建不出来** | `criteria: []` → 400「没有条件的目标永远不会『做完』」；四条 → 400，提示拆开 |
 | **一个任务一个会话** | 见下 |
 | **跑到一半被杀，重启后跑完** | 见下 |
 | **带工具的任务被杀，重启后跑完** | 见下，且答案里有三页真实原文 |
