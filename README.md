@@ -91,6 +91,35 @@ Windows 上也可以直接双击仓库根目录的 `start.cmd`：它检查 node�
 
 `worker-configuration.d.ts` 不进仓库（它是 `wrangler types` 生成的，60 多万字节）。`npm run dev` 首次启动会自动生成它；如果只想跑类型检查，先 `npm run types` 一次，否则 `tsc` 会报找不到类型定义。
 
+### 本地 dev 卡住不动了
+
+症状：端口是 LISTENING，但 `curl --noproxy '*' 127.0.0.1:8787/health` 返回 `000` 然后超时；日志停在 `Ready on http://127.0.0.1:8787` 之后再没别的。页面打不开，也不报错。
+
+多半是上一个 workerd 没退干净。`tasklist | findstr workerd` 能看到**两个** workerd，其中一个是僵的，占着同一个端口。单杀 workerd 常常不够 —— wrangler 的 node 父进程还在，会立刻拉起一个新的顶上来。
+
+按顺序做：
+
+```bash
+# 1. 找到 wrangler 主进程（命令行里带 wrangler.js 的那个）
+powershell -c "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ? CommandLine -match 'wrangler.js' | % ProcessId"
+# 2. 连子进程一起收掉
+taskkill /F /T /PID <上面那个 PID>
+# 3. 确认没有残留（应该一条都不剩）
+tasklist | findstr workerd
+# 4. 重新起
+npm run dev
+```
+
+判断好没好，只看 `health` 是不是立刻返回 `ok`。**不要看日志里的 `Ready`** —— workerd 僵住的时候它照样会打印那一行，这是它最误导人的地方。
+
+清干净还是 000，就换个持久化目录，排除状态问题：
+
+```bash
+npx wrangler dev --local --persist-to .tmp-state-x
+```
+
+能起来说明 `.wrangler/state` 那份 SQLite 坏了（强杀进程的代价），删掉重建就行 —— 丢的是本地开发数据，线上实例不受影响。
+
 部署到自己的账号（免费版就够，别加 `limits.cpu_ms`——那需要付费计划，而且也用不上：这活儿的时间全花在等模型上）：
 
 ```bash
