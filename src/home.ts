@@ -315,6 +315,7 @@ export class Home extends DurableObject<Env> {
       if (path === "/status" && request.method === "GET")
         return await this.status(url.searchParams.get("spend") === "fresh");
       if (path === "/patrol" && request.method === "GET") return await this.patrolReport();
+      if (path === "/routines" && request.method === "GET") return await this.routines();
       if (path === "/feeds" && request.method === "GET") return await this.listFeeds();
       if (path === "/feeds" && request.method === "POST") return await this.addFeed(request);
       if (path === "/feeds/update" && request.method === "POST") return await this.updateFeed(request);
@@ -506,6 +507,42 @@ export class Home extends DurableObject<Env> {
     return Response.json({
       last: last ?? null,
       next: job ? job.time : null,
+    });
+  }
+
+  /**
+   * 它自己会醒：两条定时动作的当前状态，一次说清。
+   *
+   * 为什么要单独一个接口，而不是让页面拼 `/patrol` 和 `/ingest`：
+   * 「多久一次」这个数两个接口里都没有 —— 它只活在 `DAY_MS` 和 `INGEST_EVERY_MS`
+   * 两个常量里。页面拿不到，就只能把 24 小时写死在 HTML 里，改后端的那天没人会记得改页面。
+   *
+   * 这一栏要回答的是「我没打开这个页面的时候，它到底在不在跑」。所以每条都得给出
+   * 节奏、上次、下次，以及**上次那一次的结果** —— 只有「运行中」等于什么都没说。
+   */
+  private async routines(): Promise<Response> {
+    const patrol = await this.ctx.storage.get<PatrolReport>("patrol:last");
+    const ingest = await this.ctx.storage.get<IngestReport>("ingest:last");
+    const patrolJob = this.lifecycle.jobs.get(PATROL);
+    const ingestJob = this.lifecycle.jobs.get(INGEST);
+
+    return Response.json({
+      routines: [
+        {
+          id: "ingest",
+          title: "看一遍源",
+          everyMs: INGEST_EVERY_MS,
+          last: ingest ?? null,
+          next: ingestJob ? ingestJob.time : null,
+        },
+        {
+          id: "patrol",
+          title: "巡检与推进",
+          everyMs: DAY_MS,
+          last: patrol ?? null,
+          next: patrolJob ? patrolJob.time : null,
+        },
+      ],
     });
   }
 

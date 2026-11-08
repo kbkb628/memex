@@ -62,6 +62,14 @@
 
 <section>
   <div class="sec-head">
+    <span>它自己会醒</span>
+    <span class="meta" id="routines-meta">读不到</span>
+  </div>
+  <div id="routines"></div>
+</section>
+
+<section>
+  <div class="sec-head">
     <span>它还在推进什么</span>
     <span class="meta" id="goals-meta">读不到</span>
   </div>
@@ -277,6 +285,119 @@
   $("#judged-wrap").addEventListener("toggle", (e) => {
     if (e.target.open) loadJudged();
   });
+
+  // ── 它自己会醒 ────────────────────────────────────────────
+  //
+  // 这一栏只回答一个问题：我没有打开这个页面的时候，它在不在跑。
+  // 所以每条都得给出「多久一次、上次什么时候、那次做了什么、下次什么时候」。
+  // 只写「运行中」等于什么都没说 —— 那和「上个月跑过一次」在页面上长得一样。
+  const ago = (ms) => {
+    const d = Date.now() - ms;
+    if (d < 0) return "还没到";
+    const m = Math.floor(d / 60000);
+    if (m < 1) return "刚刚";
+    if (m < 60) return m + " 分钟前";
+    const h = Math.floor(m / 60);
+    return h < 24 ? h + " 小时前" : Math.floor(h / 24) + " 天前";
+  };
+  const ahead = (ms) => {
+    const d = ms - Date.now();
+    if (d <= 0) return "随时会跑";
+    const m = Math.round(d / 60000);
+    if (m < 60) return m + " 分钟后";
+    const h = Math.round(m / 60);
+    return h < 24 ? h + " 小时后" : Math.round(h / 24) + " 天后";
+  };
+  const every = (ms) => {
+    if (ms < 3600000) return "每 " + Math.round(ms / 60000) + " 分钟";
+    const h = ms / 3600000;
+    return h < 24 ? "每 " + h + " 小时" : "每天";
+  };
+
+  function routineCard(r) {
+    const el = document.createElement("div");
+    el.className = "note";
+
+    const row = document.createElement("div");
+    row.className = "row";
+    const h = document.createElement("h3");
+    h.textContent = r.title;
+    row.appendChild(h);
+    const badge = document.createElement("span");
+    badge.className = "meta";
+    badge.textContent = every(r.everyMs);
+    row.appendChild(badge);
+    el.appendChild(row);
+
+    const last = r.last;
+    if (!last) {
+      const p = document.createElement("p");
+      p.textContent = "还没跑过。";
+      el.appendChild(p);
+    } else {
+      const facts = [];
+      if (r.id === "ingest") {
+        facts.push(last.feeds + " 个源", "新 " + last.fresh, "提交 " + last.submitted);
+        if (last.skipped) facts.push("跳过 " + last.skipped);
+      } else {
+        facts.push("扫 " + last.scanned + " 条");
+        if (last.retried.length) facts.push("重试 " + last.retried.length);
+        if (last.goals.length) facts.push("推进目标 " + last.goals.length);
+        if (!last.retried.length && !last.goals.length) facts.push("没有要动的东西");
+      }
+      const p = document.createElement("p");
+      p.textContent = "上次 " + ago(last.at) + " · " + facts.join(" · ");
+      el.appendChild(p);
+
+      // 出错和卡住单独一行、变红。混在事实里会被一眼扫过去，
+      // 而这两样恰恰是「它已经不再工作了」唯一会留下的痕迹。
+      const bad = [];
+      if (r.id === "ingest" && last.failed && last.failed.length) {
+        bad.push("没拉到 " + last.failed.map((f) => f.feed + "（" + f.error + "）").join("、"));
+      }
+      if (r.id === "patrol" && last.stuck && last.stuck.length) {
+        bad.push("卡住 " + last.stuck.length + " 个：" + last.stuck.join("、"));
+      }
+      if (bad.length) {
+        const warn = document.createElement("p");
+        warn.style.color = "#b00";
+        warn.textContent = bad.join("｜");
+        el.appendChild(warn);
+      }
+    }
+
+    if (r.next) {
+      const n = document.createElement("div");
+      n.className = "meta";
+      n.style.marginTop = "6px";
+      n.textContent = "下次 " + ahead(r.next);
+      el.appendChild(n);
+    }
+    return el;
+  }
+
+  async function loadRoutines() {
+    const box = $("#routines");
+    let body;
+    try {
+      const res = await api("/routines");
+      if (res.status === 401) { $("#routines-meta").textContent = "这个链接没有 token"; return; }
+      body = await res.json();
+    } catch {
+      $("#routines-meta").textContent = "连不上";
+      return;
+    }
+    const list = body.routines || [];
+    if (!list.length) {
+      $("#routines-meta").textContent = "没有定时动作";
+      box.innerHTML = "";
+      return;
+    }
+    const soonest = list.filter((r) => r.next).sort((a, b) => a.next - b.next)[0];
+    $("#routines-meta").textContent = list.length + " 条定时" + (soonest ? " · 下一次 " + ahead(soonest.next) : "");
+    box.innerHTML = "";
+    for (const r of list) box.appendChild(routineCard(r));
+  }
 
   async function addFeed() {
     const url = $("#feed-url").value.trim();
@@ -537,9 +658,10 @@
   // 页面重开时，把还没结果的回执接着问一遍 —— 这就是「关掉也不丢」在界面上那一半。
   list().forEach(poll);
   loadInbox();
+  loadRoutines();
   loadGoals();
   // 它会在后台自己醒。页面开着的话，一分钟看一次有没有新东西进来。
-  setInterval(() => { loadInbox(); loadGoals(); }, 60000);
+  setInterval(() => { loadInbox(); loadRoutines(); loadGoals(); }, 60000);
 </script>
 </body>
 </html>

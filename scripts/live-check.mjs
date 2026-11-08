@@ -137,6 +137,21 @@ async function main() {
     step("还没醒过", "这个实例部署后还没跑过巡检，只能验排期");
   }
 
+  // /routines：两条定时动作，连同节奏一起给出来。
+  // 重点不是「有返回」，而是**节奏由服务端给** —— 上一版页面只能把 24 小时硬编码进 HTML，
+  // 改后端的那天没人会记得改页面。这条断言锁的就是这两件事不要退化。
+  const routines = await http("/routines");
+  const rs = routines.body.routines;
+  check("/routines 返回两条定时", routines.status === 200 && Array.isArray(rs) && rs.length === 2, `${rs?.length} 条`);
+  const rIngest = Array.isArray(rs) ? rs.find((r) => r.id === "ingest") : null;
+  const rPatrol = Array.isArray(rs) ? rs.find((r) => r.id === "patrol") : null;
+  check(
+    "每条都带节奏（不是页面自己猜的）",
+    typeof rIngest?.everyMs === "number" && typeof rPatrol?.everyMs === "number",
+    `ingest=${rIngest?.everyMs} patrol=${rPatrol?.everyMs}`,
+  );
+  check("每条都带下一次时间", typeof rIngest?.next === "number" && typeof rPatrol?.next === "number");
+
   if (typeof next === "number") {
     const waitMs = next - Date.now();
     step("下一次巡检", waitMs > 0 ? `${Math.round(waitMs / 1000)} 秒后` : "已过期");
