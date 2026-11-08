@@ -28,6 +28,10 @@
   .note p { margin: 6px 0 0; white-space: pre-wrap; font-size: 14px; }
   .note .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .note button { margin: 0; padding: 2px 10px; font-size: 12px; color: #666; }
+  /* 它拒掉的：字号小一号、颜色退一档 —— 这栏是给人核对的，不是给人读的。 */
+  .note.muted h3 { font-size: 13px; font-weight: 400; color: #555; }
+  .note.muted h3 a { border-bottom-color: #eee; }
+  .note.muted p { font-size: 13px; color: #666; }
   details { margin-top: 16px; }
   summary { font-size: 13px; color: #666; cursor: pointer; }
   .empty { color: #999; font-size: 13px; padding: 14px 0; }
@@ -43,6 +47,10 @@
     <span class="meta" id="inbox-meta">读不到</span>
   </div>
   <div id="inbox"></div>
+  <details id="judged-wrap">
+    <summary>它看过、但没给你的</summary>
+    <div id="judged"></div>
+  </details>
   <details>
     <summary>加一个订阅源</summary>
     <input id="feed-url" placeholder="RSS / Atom 地址，https://…">
@@ -129,6 +137,9 @@
     const parts = [];
     if (typeof body.unread === "number") parts.push(body.unread + " 条值得看");
     if (typeof body.skipped === "number") parts.push("跳过 " + body.skipped);
+    // 失败单独露面，哪怕只有 1 条。只写「跳过 N」的时候，一个抓不到的源
+    // 和「今天没有新东西」在页面上长得一模一样。
+    if (typeof body.failed === "number" && body.failed > 0) parts.push("失败 " + body.failed);
     if (st.budget) {
       const b = st.budget;
       // 上限只拦"它自己看"的部分，所以分开说：前面是你今天真实提交的总数，
@@ -197,6 +208,75 @@
       box.appendChild(el);
     }
   }
+
+  // ── 核对：它拒掉的那些，和拒掉的理由 ──────────────────────
+  //
+  // 收件箱只放「进来了的」，可「没进来的」才是判断力的证据 —— 一条被正确
+  // 拒掉的噪音，比十条收进来的更能说明它在工作。这里默认不展开、也不发请求：
+  // 它是核对视图，不是日常读物。
+  //
+  // 只取 skipped / failed。pending 是「还没结算」，把它列进「拒掉的」是撒谎。
+  const stamp = (ms) => {
+    const d = new Date(ms);
+    const p = (n) => String(n).padStart(2, "0");
+    return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  };
+
+  async function loadJudged() {
+    const box = $("#judged");
+    box.innerHTML = '<div class="empty">正在读…</div>';
+
+    let body;
+    try {
+      const res = await api("/inbox?all=1");
+      if (res.status === 401) { box.innerHTML = '<div class="empty">这个链接没有 token</div>'; return; }
+      body = await res.json();
+    } catch {
+      box.innerHTML = '<div class="empty">连不上</div>';
+      return;
+    }
+
+    const others = (body.items || []).filter((i) => i.state === "skipped" || i.state === "failed");
+    box.innerHTML = "";
+    if (!others.length) {
+      box.innerHTML = '<div class="empty">还没有拒过任何一条。</div>';
+      return;
+    }
+
+    for (const item of others) {
+      const el = document.createElement("div");
+      el.className = "note muted";
+
+      const h = document.createElement("h3");
+      if (item.link) {
+        const a = document.createElement("a");
+        a.href = item.link;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        a.textContent = item.title;
+        h.appendChild(a);
+      } else {
+        h.textContent = item.title;
+      }
+      el.appendChild(h);
+
+      const p = document.createElement("p");
+      p.textContent = item.note || "（没留下理由 —— 这条该补上）";
+      el.appendChild(p);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.style.marginTop = "6px";
+      meta.textContent = item.feed + " · " + (item.state === "failed" ? "没跑通" : "跳过") + " · " + stamp(item.at);
+      el.appendChild(meta);
+
+      box.appendChild(el);
+    }
+  }
+
+  $("#judged-wrap").addEventListener("toggle", (e) => {
+    if (e.target.open) loadJudged();
+  });
 
   async function addFeed() {
     const url = $("#feed-url").value.trim();

@@ -959,6 +959,10 @@ export class Home extends DurableObject<Env> {
     return Response.json({
       unread: everything.filter((i) => i.state === "ready" && !i.read).length,
       skipped: everything.filter((i) => i.state === "skipped").length,
+      // 失败要单独数出来，不能只混在 `?all=1` 里。
+      // 页面只显示「值得看」的话，一个一直抓不到的源看起来和「今天没有新东西」一模一样 ——
+      // 静默的失败比失败本身更贵：它让人以为一切正常。
+      failed: everything.filter((i) => i.state === "failed").length,
       items,
     });
   }
