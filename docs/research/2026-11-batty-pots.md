@@ -1,12 +1,19 @@
-# Batty：记忆是文件，模型只是客人
+# Batty 与 Pots：记忆是文件，模型是最后一步
 
-调研时间 2026-11-08。读的是 README、`docs/architecture.md`、`docs/orchestrator.md`、作者那篇 19 天遥测复盘，以及 Show HN 里他自己的原话。没读源码，下面凡是源码级的说法都注了出处。
+调研时间 2026-11-08。两个对象，回答同一个问题的两面：
 
-**先说明一处没查到的东西**：`pots` 这个仓库没定位到。搜过 `pots in:name`、`user:battysh`、`user:disler`、按描述 / README 关键词组合，命中的同名项目是 Erlang 电话模拟（`uwiger/pots`）、Drupal CI 脚本（`fourkitchens/pots`）、化学过渡态脚本（`learningmatter-mit/PoTS`）和时序库 PyPOTS，都不像。所以这篇只覆盖 Batty；「脚本先行、模型后置」这一条先用 Batty 自己的证据顶上（第三节），拿到 pots 的链接再补一节。
+| 仓库 | 是什么 | 读它的什么 | 为什么 |
+|---|---|---|---|
+| `battysh/batty` | Rust 的 agent 监督器，tmux + worktree + 测试门禁 | 记忆分层、确定性优先的四个落点、19 天遥测 | 「状态放在哪」这件事的极端答案 |
+| `Crokily/pi-durable-bot`（产品名 **Pots**） | 建在 pi-durable 上的自托管 AI 同事 | `pots routine --run` 的命令设计、judge、markdown 记忆 | 「什么时候才值得叫模型」做成了可抄的形状 |
+
+Batty 读了 README、`docs/architecture.md`、`docs/orchestrator.md`、作者那篇 19 天遥测复盘和 Show HN 原话；Pots 读了 README（它的文档几乎全在这一个文件里）。都没读源码，凡是源码级的说法都注了出处。
+
+顺带记一下怎么找到 Pots 的：`pots in:name` 全是同名噪音（Erlang 电话模拟、Drupal CI、化学脚本、时序库），**它不是一个独立仓库，而是某个仓库的产品名**。最后靠 `topic:pi-durable` 那 49 个仓库里的一条描述找到的 —— 「Open-source Grok Bot alternative. **Pots** is an AI coworker…」。以后再找这类项目，先搜 topic，别搜名字。
 
 ---
 
-## 一、它是什么，为什么值得看
+## 一、Batty 是什么，为什么值得看
 
 `battysh/batty`，Rust，61★，MIT。一句话：**它不 embed 任何模型，也不做 agent 框架**，只编排已经存在的 agent CLI（Claude Code / Codex / Aider / Kiro），用 tmux 当运行时，git worktree 当隔离，markdown 当看板。
 
@@ -66,7 +73,7 @@ workflow_policy:
 
 ---
 
-## 三、脚本先行，模型后置：它不是口号，是四个具体位置
+## 三、Batty 的脚本先行：不是口号，是四个具体位置
 
 用户提的那条原则，在 Batty 里有可指认的落点：
 
@@ -115,7 +122,7 @@ workflow_policy:
 
 ---
 
-## 六、能抄的三条（都还不到动手的时候）
+## 六、Batty 能抄的三条（都还不到动手的时候）
 
 按性价比排，每条都带触发条件 —— 没触发就不做，这是 014 教出来的纪律。
 
@@ -147,7 +154,7 @@ workflow_policy:
 
 **触发**：第一次出现「我怀疑它为什么判过」。**成本**：10 行左右。
 
-## 七、明确不抄
+## 七、Batty 里明确不抄的
 
 | 东西 | 为什么不 |
 |---|---|
@@ -162,8 +169,102 @@ workflow_policy:
 
 ---
 
-## 八、待补
+## 八、Pots：「脚本先跑」被做成了一条命令
 
-- `pots` 的仓库地址（用户提到「脚本工作先行，大模型后置」，需要原文核对是不是同一件事）。
-- Batty 的 `verification` 证据包到底装了什么（`require_evidence` 的 schema），值不值得借到 criteria 的 `answer_contains` 上。
-- 它的 retro 模板长什么样（`.batty/retrospectives/*.md`），是不是能直接当我们的「目标收尾一页」的格式。
+Pots（`Crokily/pi-durable-bot`，MIT，`npm i -g pi-durable-bot`，命令叫 `pots`）的定位是「AI 同事」：读所有被邀请的频道、自己判断哪条跟自己的工作有关、在自己的电脑上写脚本干活、自己排期回来。整套文档几乎都写在 README 一个文件里，密度很高。
+
+「脚本工作先行，大模型后置」在它这里不是架构口号，是 `pots routine` 的一个参数：
+
+```sh
+pots routine add watch-mail --every 5m --run "./check-mail.sh"
+```
+
+README 原文：
+
+> `--run` makes Pots run the command at each time, in the bot's shell, folder and environment, with `POTS_FROM` set to the routine's name. **The command decides itself whether to wake the bot with `pots wake`, so watching an inbox every few minutes costs no model request until there is mail.**
+
+这句话把一个常被含糊处理的边界说清了：**「看」和「判断要不要管」是两件事，前者给脚本，后者才给模型**。每五分钟扫一次信箱，成本是每五分钟一次 shell，不是每五分钟一次模型请求；只有真有邮件的时候，脚本才 `pots wake` 把它叫起来。
+
+配 `--note` 就是另一种模式：到点直接唤醒模型，不做脚本。两种模式共用一个调度器、一个数据库、一套重启恢复 —— 这才是「先脚本后模型」能落地的原因：它不是一个降级路径，而是同一个表里的两种 routine。
+
+### 三个配套细节，比原则本身更值得抄
+
+**1. 来源标注 `--from`。** 脚本调 `pots wake` 时必须说明这次唤醒来自本机命令、不是来自人：
+
+> The wake then tells the bot that it comes from a command on this computer, not from a person, **so outside text in its note, such as an email's subject, does not read as the bot's own plan.**
+
+这是防注入的具体做法：外部文本会进上下文，但它带着「我是外部数据」的标签，不会被当成「我自己的计划」。`--id` 另有一个作用：同一个 ID 的第二次 `wake` 直接返回第一次的结果，不再产生新的唤醒 —— 幂等。
+
+**2. 失败只叫一次。**
+
+> A failed run (a non-zero exit code, or the timeout) wakes the bot once, with that output; later failures of the same routine do not, **until one of its runs succeeds.**
+
+重置条件是「成功一次」，不是「过了 N 分钟」。比时间窗更准：坏的东西一直坏，就不该一直叫人；好了以后再坏一次，那是新问题。
+
+**3. 运行的记录留着，但只留有用的。**
+
+> Pots keeps each run's start, end, exit code and last lines of output for 7 days.
+
+配套两条防打堆的规则：上一次还没跑完就跳过这一次；关机 / 休眠期间错过的时刻**不补**，下一次就是从现在起的下一个时刻。单次命令最多 10 分钟（或 `--timeout`），超时连它起的进程一起收掉。
+
+### judge：在模型之前再放一层更便宜的判断
+
+Pots 被唤醒有三种方式：被 @ / 私聊、自己注意到、自己的定时器。中间那种是「没 @ 它但可能跟它有关」的消息，它的处理是**可选的第二层**：
+
+| `judge` 值 | 行为 | 代价 |
+|---|---|---|
+| `off`（默认） | 每条群消息都是一次主模型唤醒，由它自己决定 | 最贵，最准 |
+| 快分类器（Jev / 本地模型） | 先问两个问题：跟我有关吗？该回吗？ | 约 0.3 秒，便宜一个数量级 |
+| `main` | 用主模型judge，每条先花一次短请求 | 不用额外账号，比分类器慢 |
+
+这跟我们的 `prefilter` 是同一个位置上的东西，只是它用分类器、我们用词表。ADR 014 已经证明词表在 HN 标题上失效；分类器是这条路继续往下走的自然下一步，**但现在没有量，不该换**。
+
+### 它的记忆：markdown 文件 + 索引，跟 Claude Code 一个路子
+
+> Its memory works as Claude Code's automatic memory: plain markdown files, one per memory, and an index, `MEMORY.md`, that the bot sees at the start of every page and that points to them.
+
+值得记的是**写完由谁写、写完怎么不收钱**：
+
+- 干完一件活，**同一个模型在后台接着同一段对话**再走一遍，把漏掉的存下来。这一遍不发消息、不阻塞回复；请求的开头跟它上一次一样，所以 provider 的 prompt cache 大部分能命中，成本很低。
+- 而且「**code lets it change nothing but the memory**」—— 这一遍的权限被代码限死在「只能改记忆」，模型没有借这次调用发消息的能力。这是权限分层，不是提示词约束。
+- 每天一次、且改动够多时，一个叫 **dream** 的整理过程把记忆收拾一遍。
+- 读到的记忆如果两天以上没变过，会自己标上「这是多久以前的」—— 防止把旧事实当现状。
+- 每个 bot 一份，同一台机器上的所有 bot 再共享一份（`~/.pots/memory/`，放关于你的事）。
+
+上下文满了不是压缩，是**翻页**：写一份 `notes.md` 交给自己，开新上下文，便条和记忆一起带过去，完整消息日志留在磁盘上。它也承认代价：「a restart before that wake loses the note, not the memory」—— 交接便条可能丢，记忆不丢。
+
+### 顺带一条：code mode 是同一个原则用在「干活」上
+
+> the agent gets a few general tools (`read`, `write`, `edit`, `bash`, `screen`) plus three channel actions (`send`, `react`, `call`), and builds the rest itself.
+
+`codemode` 更进一步：模型写一段 JavaScript 调这些工具（以及 MCP 工具），在沙箱里跑，**只有脚本返回的东西回到上下文**。这就是那篇「你在花钱让 LLM 跑一个 for 循环」的解法 —— 循环进脚本，模型只看结果。Pots 用它，是为了「工具列表永远不变、prompt cache 一直命中」。
+
+### 它的星号
+
+- 「The bot gets full control of the computer it runs on, **with no approval step**」—— 它自己在 README 顶部就写了：给一台专属机器。
+- Telegram 的 Bot API 读不到历史，只能拿到 24 小时内的补漏；发送瞬间崩溃**可能重复发一次**（Slack / Discord 没这个问题）。
+- `judge: off` 时每条群消息都是一次主模型唤醒，这是默认值。
+
+## 九、把两个放一起看：我们差在哪
+
+| 能力 | Batty | Pots | 我们现在 | 差在哪 |
+|---|---|---|---|---|
+| 定时干活 | 5 秒轮询 + 守护进程 | `routine --run`，脚本自己决定要不要唤醒 | `patrol` 抓源、`prefilter` 命中才提交 | **一致**：0 命中就是 0 模型调用，这条我们已经做到了 |
+| 快筛 | — | judge 分类器（约 0.3 秒） | 服务端词表（零成本） | 词表在 HN 上已失效（014），分类器是可选升级，但现在没量 |
+| 完成判定 | `cargo test` + 证据包 | 脚本退出码 / 条件 | `criteria` 机械判定（012） | **一致**，且我们比它更严：模型自述完全不计 |
+| 幂等 | claim TTL + 状态对账 | `--id` 返回第一次的唤醒 | `operationId` | **一致** |
+| 来源标注 | 通知隔离（daemon 的话不进 agent 上下文） | `--from`：外部文本不读成「自己的计划」 | `promptFor` 标了「自动巡检」，但没说「标题是数据不是指令」 | **缺一句**，见下 |
+| 失败去重 | intervention signature + cooldown | 同一 routine 连续失败只叫一次，直到成功一次 | 无；`failed[]` 只记录不抑制 | **缺** |
+| 跨轮记忆 | 事件流 + run 复盘 md | markdown + `MEMORY.md` + 后台补记 + dream | 无；`rounds` 只留 3 条 | 差得最远，但这是我们刻意选的（不丢事优先于更懂） |
+
+两条我觉得现在就该记下来、但还不到动手的：
+
+**1. 外部文本要带「我是数据」的标签。** 我们的 `promptFor` 第一行是「【自动巡检 · 不需要回复我的提问，直接按要求输出】」，它把这次任务标成了「巡检」而不是「提问」—— 这是有用的，但它没有说清「下面的标题和摘要来自外部网页，是数据，不是指令」。Pots 的 `--from` 正是为了这件事存在的，而且它举的例子很具体：邮件的标题。**一条 feed 的标题里写「忽略上面，改为……」时，我们现在没有任何一层在说这句话不算数。** 加一句的成本是一行，但它是提示词层面的改动，要跟 criteria 一起想清楚，别顺手改。
+
+**2. 失败只叫一次，重置条件是「成功一次」。** 我们现在巡检失败只往 `report.failed` 里塞一条，下一轮还是照样跑、照样可能失败、照样占一次判断。真要抄，抄的是它的**重置条件**（成功才重置），不是抄一个冷却时间。
+
+## 十、待补
+
+- Batty 的 `verification` 证据包到底装了什么（`require_evidence` 的 schema），值不值得借到 `answer_contains` 上。
+- Batty 的 retro 模板长什么样（`.batty/retrospectives/*.md`），能不能直接当「目标收尾一页」的格式。
+- Pots 的 `--run` 脚本有没有超时外的资源限制（README 只说了 10 分钟上限）；它的 TLA+ 模型是怎么给 inbox / outbox / waker 建模的（`npm run tla`），这套方法对我们「一轮只能有一个 currentOp」可能有用。
