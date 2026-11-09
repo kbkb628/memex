@@ -179,8 +179,8 @@ curl --noproxy '*' --resolve <你的域名>:443:<上面查到的 IP> https://<�
 | `GET` | `/status` | 用的哪个模型、几条时间线、几个源、收件箱、今天的预算、累计用量（`?spend=fresh` 绕过六十秒缓存） |
 | `GET` | `/patrol` | 上一次巡检做了什么，下一次什么时候醒 |
 | `GET` | `/feeds` | 配了哪些源、下一次什么时候去看 |
-| `POST` | `/feeds` | 加一个源：`{url, want, label?, prefilter?}`。接入时建立基线，不吃历史 |
-| `POST` | `/feeds/update` | 调一个源：`{id, want?, prefilter?}`。`prefilter` 传空表示关掉粗筛 |
+| `POST` | `/feeds` | 加一个源：`{url, want, avoid?, label?, prefilter?}`。`want` 是要什么，`avoid` 是不要什么（降权，不是门槛）。接入时建立基线，不吃历史 |
+| `POST` | `/feeds/update` | 调一个源：`{id, want?, avoid?, prefilter?}`。只传 `avoid` 不会清掉 `want`；`prefilter` 传空表示关掉粗筛 |
 | `POST` | `/feeds/remove` | 删一个源：`{id}` |
 | `GET` | `/inbox` | 它替你看来的东西。`?all=1` 连跳过的、失败的一起给 |
 | `POST` | `/inbox/read` | 标为已读：`{id}` 或 `{all:true}` |

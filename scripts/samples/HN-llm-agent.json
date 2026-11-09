@@ -1,0 +1,37 @@
+[
+  {
+    "id": "1twgeqx",
+    "title": "Stop running everything through LLMs: How I fixed my research agent",
+    "link": "https://www.tinyfish.ai/blog/inside-tinyresearch",
+    "summary": "Article URL: https://www.tinyfish.ai/blog/inside-tinyresearch Comments URL: https://news.ycombinator.com/item?id=50389479 Points: 22 # Comments: 1",
+    "publishedAt": 1793952298000
+  },
+  {
+    "id": "1ihmvxb",
+    "title": "LLM agents play Pokemon showdown",
+    "link": "https://olivergrabner.com/research/pokemon/",
+    "summary": "Article URL: https://olivergrabner.com/research/pokemon/ Comments URL: https://news.ycombinator.com/item?id=50190334 Points: 31 # Comments: 17",
+    "publishedAt": 1792635228000
+  },
+  {
+    "id": "xsg23o",
+    "title": "Hybrid Reasoning Agents: LLM agents that think in latent space, act through text",
+    "link": "https://arxiv.org/abs/2610.18861",
+    "summary": "https://x.com/Jiaru_Zou/status/2110400256647340476 https://github.com/togethercomputer/HybridAgent https://huggingface.co/collections/togethercomputer/hybridag... Evaluations: https://arxiv.org/html/2610.18861v1#S5 Comments URL: https://news.ycombinator.com/item?id=50145337 Points: 520 # Comments: 239",
+    "publishedAt": 1792356494000
+  },
+  {
+    "id": "38dbq6",
+    "title": "Show HN: Jevcrawl – A web crawler for AI agents with no LLM in the crawl loop",
+    "link": "https://github.com/RayenMlayeh/jevcrawl",
+    "summary": "Article URL: https://github.com/RayenMlayeh/jevcrawl Comments URL: https://news.ycombinator.com/item?id=50080450 Points: 21 # Comments: 3",
+    "publishedAt": 1791934520000
+  },
+  {
+    "id": "9p2rnc",
+    "title": "Understanding the Impact of LLM Watermarking on AI Agent Behavior",
+    "link": "https://www.lasso.security/blog/the-provenance-tax-understanding-the-impact-of-llm-watermarking-on-ai-agent-behavior",
+    "summary": "Article URL: https://www.lasso.security/blog/the-provenance-tax-understanding-the-impact-of-llm-watermarking-on-ai-agent-behavior Comments URL: https://news.ycombinator.com/item?id=49856149 Points: 59 # Comments: 72",
+    "publishedAt": 1790427936000
+  }
+]

@@ -6,6 +6,7 @@ import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "a
 import { buildModels } from "./models";
 import { systemExtension } from "./prompts";
 import { webExtension } from "./tools";
+import { parseVerdict, type Verdict } from "./verdict";
 import {
   decide,
   goalDigest,
@@ -22,13 +23,15 @@ import {
   fetchFeed,
   hash as hashId,
   INBOX_LIMIT,
-  isSkip,
   localDay,
   prefilterHits,
+  makeWant,
   promptFor,
+  readWant,
   SEEN_LIMIT,
   type Feed,
   type FeedItem,
+  type FeedWant,
 } from "./feeds";
 
 /**
@@ -171,8 +174,12 @@ type InboxItem = {
   at: number;
   session: string;
   state: "pending" | "ready" | "skipped" | "failed";
-  /** 模型写的那两三句话；跳过或失败时是原因。 */
+  /** 模型写的那两三句话；跳过或失败时是原因。保留它是为了旧记录还能读。 */
   note?: string;
+  /** 我们交给模型的材料字数。提交时记，因为正文只在那一刻在手边。 */
+  given?: number;
+  /** 拆开并核对过的判定。旧记录没有这个字段。 */
+  verdict?: Verdict;
   read?: boolean;
 };
 
@@ -709,6 +716,7 @@ export class Home extends DurableObject<Env> {
           at: Date.now(),
           session: receipt.session,
           state: "pending",
+          given: item.summary.length,
         });
       }
     }
@@ -739,6 +747,10 @@ export class Home extends DurableObject<Env> {
     const entries = await this.ctx.storage.list<InboxItem>({ prefix: "inbox:" });
     const open = [...entries.entries()].filter(([, item]) => item.state === "pending");
     if (!open.length) return { settled: 0, skipped: 0 };
+
+    // 判定要核对 `hit` 是不是真的来自 `avoid`，所以得知道这个源的两栏。
+    // 一次读全，不要每条都去 storage 取一遍。
+    const briefs = new Map((await this.readFeeds()).map((f) => [f.id, readWant(f.want)]));
 
     const bySession = new Map<string, [string, InboxItem][]>();
     for (const [key, item] of open) {
@@ -774,18 +786,20 @@ export class Home extends DurableObject<Env> {
           await this.ctx.storage.put<InboxItem>(key, { ...item, state: "failed", note: "任务没留下任何输出。" });
           continue;
         }
-        if (isSkip(note)) {
+        const verdict = parseVerdict(note, briefs.get(item.feedId) ?? { about: "" }, item.given ?? 0);
+
+        if (!verdict.keep) {
           // 跳过要留痕，不能删。
           //
           // 第一版是直接删掉的，结果出过一次事：模型把一条明明相关的内容判成 SKIP，
           // 而因为记录被删了，我看到的只是「收件箱是空的」，完全无法分辨
           // 它是「今天真的没新东西」还是「它判断错了」。**看不见的跳过等于没有发生过**，
           // 用户也就永远没机会把 `want` 调对。
-          await this.ctx.storage.put<InboxItem>(key, { ...item, state: "skipped", note });
+          await this.ctx.storage.put<InboxItem>(key, { ...item, state: "skipped", note, verdict });
           skipped++;
           continue;
         }
-        await this.ctx.storage.put<InboxItem>(key, { ...item, state: "ready", note });
+        await this.ctx.storage.put<InboxItem>(key, { ...item, state: "ready", note, verdict });
       }
     }
 
@@ -850,7 +864,9 @@ export class Home extends DurableObject<Env> {
     const feeds = await this.readFeeds();
     const report = await this.ctx.storage.get<IngestReport>("ingest:last");
     return Response.json({
-      feeds,
+      // `want` 原样给（`sources.mjs` 要拿它发回去），`brief` 是归一化后的，
+      // 页面只认这一种形状 —— 否则「一句话」和「两栏」要在前端判两次。
+      feeds: feeds.map((f) => ({ ...f, brief: readWant(f.want) })),
       next: this.lifecycle.jobs.get(INGEST)?.time ?? null,
       last: report ?? null,
     });
@@ -871,12 +887,13 @@ export class Home extends DurableObject<Env> {
       url?: string;
       label?: string;
       want?: string;
+      avoid?: string;
       prefilter?: string[] | string;
     }>();
     const url = body.url?.trim();
     if (!url) return Response.json({ error: "url is required" }, { status: 400 });
 
-    const want = body.want?.trim() || "任何值得我知道的新内容";
+    const want = makeWant(body.want?.trim() || "任何值得我知道的新内容", body.avoid);
     const prefilter = parseWords(body.prefilter);
     const feeds = await this.readFeeds();
     if (feeds.some((f) => f.url === url)) {
@@ -921,6 +938,7 @@ export class Home extends DurableObject<Env> {
     const body = await request.json<{
       id?: string;
       want?: string;
+      avoid?: string;
       prefilter?: string[] | string;
     }>();
     const id = body.id?.trim();
@@ -931,7 +949,13 @@ export class Home extends DurableObject<Env> {
     if (index < 0) return Response.json({ error: "没有这个源" }, { status: 404 });
 
     const next: Feed = { ...feeds[index] };
-    if (body.want !== undefined) next.want = body.want.trim() || next.want;
+    // 只改一栏时另一栏要保住：`avoid` 和 `want` 是分开提交的，
+    // 直接覆盖成字符串会让「只改不要什么」意外清掉「我要什么」。
+    if (body.want !== undefined || body.avoid !== undefined) {
+      const cur = readWant(next.want);
+      const w = body.want !== undefined ? body.want.trim() || cur.about : cur.about;
+      next.want = makeWant(w, body.avoid !== undefined ? body.avoid : cur.avoid);
+    }
     if (body.prefilter !== undefined) {
       const words = parseWords(body.prefilter);
       // 传了空 = 明确关掉粗筛。不能当成「没填」而保留旧的，

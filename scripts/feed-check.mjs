@@ -16,7 +16,7 @@
  */
 
 import { createServer } from "node:http";
-import { fetchFeed } from "../src/feeds.ts";
+import { fetchFeed, makeWant, readWant } from "../src/feeds.ts";
 
 const checks = [];
 function check(name, pass, detail) {
@@ -97,6 +97,22 @@ try {
 } finally {
   server.close();
 }
+
+// 5. 两栏的读写：老数据是字符串，新数据是对象，两种都得认。
+//    这里锁的是「不迁移也能跑」——线上已经存了 5 个源，
+//    如果这里只认新形状，部署那一刻它们会全部变成空 want。
+const old = readWant("我要持久执行的坑");
+check("老形态（字符串）读成 about 一栏", old.about === "我要持久执行的坑" && old.avoid === undefined);
+
+const both = readWant({ about: "踩坑记录", avoid: "招聘" });
+check("新形态（两栏）原样读出", both.about === "踩坑记录" && both.avoid === "招聘");
+
+check("没填 avoid 时写回去还是一个字符串", makeWant("踩坑记录") === "踩坑记录");
+check(
+  "填了 avoid 才升级成对象",
+  JSON.stringify(makeWant("踩坑记录", " 招聘 ")) === JSON.stringify({ about: "踩坑记录", avoid: "招聘" }),
+);
+check("空 avoid 等于没填", makeWant("踩坑记录", "   ") === "踩坑记录");
 
 const ok = checks.every((c) => c.pass);
 console.log(`\n${ok ? "全部通过" : "有检查没过"}  ${checks.filter((c) => c.pass).length}/${checks.length}\n`);

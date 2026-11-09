@@ -20,6 +20,10 @@ on:
         description: 跳过目标那一节（线上还是旧版本时用）
         type: boolean
         default: false
+      sync_want:
+        description: 把代码里的 want 推到线上已有的源（改口径时给一次 true）
+        type: boolean
+        default: false
       migrate_sources:
         description: 把线上的源换成代码里的默认源（只在改过默认源时给一次 true）
         type: boolean
@@ -44,6 +48,15 @@ jobs:
           BASE: ${{ inputs.base }}
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
         run: node scripts/sources.mjs --drop https://hnrss.org/frontpage --add-defaults
+
+      # 改口径：线上源的 want 存在 Durable Object 里，改代码不会动它。
+      # 这一步只在「代码里的口径变了」时用一次，平时别开。
+      - name: 同步口径
+        if: ${{ inputs.sync_want }}
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+        run: node scripts/sources.mjs --sync-want --apply
 
       - name: 从公网打线上实例
         env:

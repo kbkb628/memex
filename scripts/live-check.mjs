@@ -174,7 +174,24 @@ async function main() {
   }
 
 
-  // ── 6. 真跑一个任务：提交、拿回执、等它自己跑完
+  // ── 6. 它看什么：口径
+  //
+  // 为什么这条必须在线上验：`want` 存在 Durable Object 里，改代码不会动它
+  // （ADR 010）。所以「仓库里的口径改了」和「线上在按新口径判」是两件事，
+  // 而这条断言是它们之间唯一可验证的连接 —— 少了它，一次 `--sync-want`
+  // 静默失败可以连着几个星期没人发现，表现只是「判定好像不太对」。
+  //
+  // 它验「读得出来」，不验「写得对」：后者要等真的有判定发生，
+  // 而那要看 /inbox 里的 verdict。
+  const feeds = await http("/feeds");
+  const list = feeds.body.feeds ?? [];
+  step("它现在看几个源", { feeds: list.length });
+  const shaped = list.filter((f) => f.brief && typeof f.brief.about === "string" && f.brief.about.trim());
+  check("每个源都读得出「我要什么」", list.length > 0 && shaped.length === list.length, `${shaped.length}/${list.length}`);
+  const avoided = list.filter((f) => typeof f.brief?.avoid === "string" && f.brief.avoid.trim());
+  check("至少一个源写了「我不要的」", avoided.length > 0, `${avoided.length}/${list.length}`);
+
+  // ── 7. 真跑一个任务：提交、拿回执、等它自己跑完
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   const probe = `用一句话回答：${stamp} 这个时间戳的年份是多少？只回一个数字。`;
   const operationId = `live-${stamp}`;
@@ -218,7 +235,7 @@ async function main() {
   check("回执答得出跑了多久", typeof final.elapsedMs === "number" && final.elapsedMs > 0, `${final.elapsedMs}ms`);
   check("答案答到了问的那件事", String(final.text ?? "").includes("2026"), (final.text ?? "").slice(0, 60));
 
-  // ── 7. 目标：线上这一层也能推一轮
+  // ── 8. 目标：线上这一层也能推一轮
   if (SKIP_GOAL) {
     step("目标", "跳过（SKIP_GOAL=1）");
   } else {

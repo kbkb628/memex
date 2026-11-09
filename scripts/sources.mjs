@@ -9,12 +9,14 @@
  *   BASE=https://xxx MEMEX_TOKEN=... node scripts/sources.mjs --list
  *   BASE=... node scripts/sources.mjs --add-defaults
  *   BASE=... node scripts/sources.mjs --drop https://hnrss.org/frontpage
+ *   BASE=... node scripts/sources.mjs --sync-want          # 只列差异
+ *   BASE=... node scripts/sources.mjs --sync-want --apply  # 真改
  *
  * 默认只做「加」，删除必须显式给 URL —— 这个脚本不该有能力悄悄删掉一个源，
  * 因为删源会连带删掉那个源在收件箱里的条目（009）。
  */
 
-import { DEFAULT_FEEDS } from "../src/feeds.ts";
+import { DEFAULT_FEEDS, readWant } from "../src/feeds.ts";
 
 const BASE = (process.env.BASE || "").replace(/\/$/, "");
 const TOKEN = process.env.MEMEX_TOKEN || "";
@@ -74,16 +76,67 @@ if (dropIndex >= 0) {
   }
 }
 
+// 把代码里的 `want` 推到线上已有的源。改口径时用它。
+//
+// 为什么不是 --add-defaults 的一部分：那个只补缺的源，不碰已有的；
+// 而改口径恰恰只碰已有的。两件事混在一起，就会出现「我只是想补一个源，
+// 结果五个源的 want 都被覆盖了」。
+// 默认只列差异。`want` 是唯一一处「人可能手写过」的配置 ——
+// 一个运维脚本不该在没打招呼的情况下把它覆盖掉，
+// 所以真改要显式 --apply。
+if (args.includes("--sync-want")) {
+  const apply = args.includes("--apply");
+  const current = await list();
+  const byUrl = new Map(current.map((f) => [f.url, f]));
+  for (const f of DEFAULT_FEEDS) {
+    const live = byUrl.get(f.url);
+    if (!live) {
+      console.log(`  线上没有，跳过：${f.label}`);
+      continue;
+    }
+    const a = readWant(live.want);
+    const b = readWant(f.want);
+    if (a.about === b.about && (a.avoid ?? "") === (b.avoid ?? "")) {
+      console.log(`  没变：${f.label}`);
+      continue;
+    }
+    if (!apply) {
+      console.log(`  有差异：${f.label}\n    线上：${a.about}\n    代码：${b.about}`);
+      continue;
+    }
+    const res = await call("/feeds/update", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: live.id, want: b.about, avoid: b.avoid ?? "" }),
+    });
+    if (res.status !== 200) {
+      console.log(`  改不上 ${f.label}：${res.body.error ?? res.status}`);
+      continue;
+    }
+    console.log(`  已更新 ${f.label}`);
+  }
+  if (!apply) console.log("\n以上只是列出差异，没有改。加 --apply 才写入。");
+}
+
 if (args.includes("--add-defaults")) {
   const current = await list();
   const have = new Set(current.map((f) => f.url));
   const missing = DEFAULT_FEEDS.filter((f) => !have.has(f.url));
   if (!missing.length) console.log("默认源都在了，没有要加的。");
   for (const f of missing) {
+    // `want` 现在是两栏对象，而 `/feeds` 收的是两个平铺字段。
+    // 直接把它塞回去会变成 "[object Object]" —— 一个不会报错、只会静默丢内容的坑。
+    const brief = readWant(f.want);
     const res = await call("/feeds", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: f.url, label: f.label, want: f.want, prefilter: f.prefilter }),
+      body: JSON.stringify({
+        url: f.url,
+        label: f.label,
+        want: brief.about,
+        avoid: brief.avoid,
+        prefilter: f.prefilter,
+      }),
     });
     if (res.status !== 200) {
       console.log(`  加不上 ${f.label}：${res.body.error ?? res.status}`);

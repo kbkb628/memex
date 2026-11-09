@@ -55,6 +55,7 @@
     <summary>加一个订阅源</summary>
     <input id="feed-url" placeholder="RSS / Atom 地址，https://…">
     <input id="feed-want" placeholder="你想知道什么（一句话，比如「只报和持久执行有关的」）">
+    <input id="feed-avoid" placeholder="不想要什么（可留空，比如「招聘、融资、榜单」）">
     <button id="feed-add">接入</button>
     <div class="meta" id="feed-msg" style="margin-top:8px"></div>
   </details>
@@ -268,14 +269,25 @@
       }
       el.appendChild(h);
 
+      const v = item.verdict;
       const p = document.createElement("p");
-      p.textContent = item.note || "（没留下理由 —— 这条该补上）";
+      p.textContent = (v && v.why) || item.note || "（没留下理由 —— 这条该补上）";
       el.appendChild(p);
+
+      // 两件它自己说不清、只有服务端知道的事：给了多少材料、理由里有没有点名。
+      // 前者区分「读了正文才判」和「只看见标题就判」；后者区分「照口径跳的」
+      // 和「含糊跳的」。都没有的话不硬凑一行。
+      const bits = [];
+      if (v && typeof v.givenChars === "number") bits.push("材料 " + v.givenChars + " 字");
+      if (v && v.cited && v.cited.length) {
+        bits.push("提到「" + v.cited.join(" / ") + "」");
+      }
+      bits.push(item.feed, item.state === "failed" ? "没跑通" : "跳过", stamp(item.at));
 
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.style.marginTop = "6px";
-      meta.textContent = item.feed + " · " + (item.state === "failed" ? "没跑通" : "跳过") + " · " + stamp(item.at);
+      meta.textContent = bits.join(" · ");
       el.appendChild(meta);
 
       box.appendChild(el);
@@ -402,6 +414,7 @@
   async function addFeed() {
     const url = $("#feed-url").value.trim();
     const want = $("#feed-want").value.trim();
+    const avoid = $("#feed-avoid").value.trim();
     if (!url) return;
     $("#feed-add").disabled = true;
     $("#feed-msg").textContent = "正在读这个源…";
@@ -409,7 +422,7 @@
     const res = await api("/feeds", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url, want }),
+      body: JSON.stringify({ url, want, avoid }),
     }).catch(() => null);
     $("#feed-add").disabled = false;
 
@@ -420,6 +433,7 @@
 
     $("#feed-url").value = "";
     $("#feed-want").value = "";
+    $("#feed-avoid").value = "";
     $("#feed-msg").textContent = body.note || "已接入";
     loadInbox();
   }
