@@ -3,18 +3,18 @@
   "scenario": "live",
   "observed": true,
   "passed": true,
-  "when": "2026-11-10T10:19:08.918Z",
+  "when": "2026-11-10T11:35:26.975Z",
   "deploy": {
     "target": "https://personal-agent.kbkb628.workers.dev",
-    "from": "github-actions (GitHub Actions 1000000438)",
+    "from": "github-actions (GitHub Actions 1000000442)",
     "why": "这台开发机到 Cloudflare 边缘整体不通（DNS 污染 + 直连真实 IP 超时），所以从公网 runner 发起",
     "runtime": "Cloudflare Workers + Durable Object (SQLite), 线上"
   },
   "driver": "node scripts/live-check.mjs",
   "request": {
-    "operationId": "live-20261110101900",
-    "session": "297",
-    "probe": "用一句话回答：20261110101900 这个时间戳的年份是多少？只回一个数字。"
+    "operationId": "live-20261110113518",
+    "session": "319",
+    "probe": "用一句话回答：20261110113518 这个时间戳的年份是多少？只回一个数字。"
   },
   "checks": [
     {
@@ -25,12 +25,12 @@
     {
       "name": "公网能拿到页面",
       "pass": true,
-      "detail": "200, 27825 字节"
+      "detail": "200, 28428 字节"
     },
     {
       "name": "线上那一页和仓库里这一页是同一份内容",
       "pass": true,
-      "detail": "0c666e349fe5 vs 0c666e349fe5"
+      "detail": "5c74b26435b4 vs 5c74b26435b4"
     },
     {
       "name": "不带 token 打 /status → 401",
@@ -50,17 +50,17 @@
     {
       "name": "返回里有预算",
       "pass": true,
-      "detail": "{\"day\":\"2026-11-10\",\"used\":0,\"limit\":20,\"manual\":8,\"total\":8}"
+      "detail": "{\"day\":\"2026-11-10\",\"used\":0,\"limit\":20,\"manual\":10,\"total\":10}"
     },
     {
       "name": "/patrol 有下一次的时间",
       "pass": true,
-      "detail": "next=1794308093411"
+      "detail": "next=1794394493578"
     },
     {
       "name": "上一轮巡检真的执行过",
       "pass": true,
-      "detail": "2026-11-09T10:54:53.411Z"
+      "detail": "2026-11-10T10:54:53.578Z"
     },
     {
       "name": "/routines 返回两条定时",
@@ -83,7 +83,7 @@
     {
       "name": "抓取不是全军覆没",
       "pass": true,
-      "detail": "2/5 通"
+      "detail": "5/5 通"
     },
     {
       "name": "当场跑一轮也拿到了结果",
@@ -98,7 +98,7 @@
     {
       "name": "下一次巡检排在未来",
       "pass": true,
-      "detail": "2153 秒"
+      "detail": "83975 秒"
     },
     {
       "name": "每个源都读得出「我要什么」",
@@ -113,7 +113,7 @@
     {
       "name": "提交拿到回执",
       "pass": true,
-      "detail": "{\"operationId\":\"live-20261110101900\",\"session\":\"297\",\"accepted\":true,\"at\":1794305940926}"
+      "detail": "{\"operationId\":\"live-20261110113518\",\"session\":\"319\",\"accepted\":true,\"at\":1794310518933}"
     },
     {
       "name": "同 id 同文字重发被判重复",
@@ -123,7 +123,7 @@
     {
       "name": "重发落回同一条会话",
       "pass": true,
-      "detail": "297"
+      "detail": "319"
     },
     {
       "name": "线上跑完了，且答案是空的以外的东西",
@@ -133,7 +133,7 @@
     {
       "name": "回执答得出跑了多久",
       "pass": true,
-      "detail": "3396ms"
+      "detail": "3432ms"
     },
     {
       "name": "答案答到了问的那件事",
@@ -143,12 +143,12 @@
     {
       "name": "线上能建目标",
       "pass": true,
-      "detail": "h70nzu"
+      "detail": "jdd6cg"
     },
     {
       "name": "建完就起了第一轮",
       "pass": true,
-      "detail": "goal:h70nzu:r1"
+      "detail": "goal:jdd6cg:r1"
     },
     {
       "name": "线上目标有结论（done 或 failed）",
@@ -158,15 +158,15 @@
   ],
   "steps": [
     {
-      "at": 435,
+      "at": 464,
       "name": "页面",
       "info": {
-        "bytes": 27825,
-        "sha256": "0c666e349fe5a097"
+        "bytes": 28428,
+        "sha256": "5c74b26435b41dbc"
       }
     },
     {
-      "at": 734,
+      "at": 1166,
       "name": "线上状态",
       "info": {
         "model": "deepseek/deepseek-flash",
@@ -179,27 +179,27 @@
           "day": "2026-11-10",
           "used": 0,
           "limit": 20,
-          "manual": 8,
-          "total": 8
+          "manual": 10,
+          "total": 10
         }
       }
     },
     {
-      "at": 857,
+      "at": 1250,
       "name": "上一次巡检",
       "info": {
-        "at": "2026-11-09T10:54:53.411Z",
-        "scanned": 15,
+        "at": "2026-11-10T10:54:53.578Z",
+        "scanned": 26,
         "retried": 0,
         "stuck": 0,
         "goals": 0
       }
     },
     {
-      "at": 975,
+      "at": 1340,
       "name": "上一次抓取",
       "info": {
-        "at": "2026-11-10T07:58:18.056Z",
+        "at": "2026-11-10T10:58:21.162Z",
         "feeds": 5,
         "fresh": 0,
         "submitted": 0,
@@ -207,15 +207,10 @@
       }
     },
     {
-      "at": 975,
-      "name": "抓不到的源",
-      "info": "HN · durable objects → 对方返回 502 Bad Gateway（重试过一次）。 ｜ HN · agent runtime → 对方返回 502 Bad Gateway（重试过一次）。 ｜ HN · llm agent → 对方返回 502 Bad Gateway（重试过一次）。"
-    },
-    {
-      "at": 1675,
+      "at": 2127,
       "name": "刚跑的一轮抓取",
       "info": {
-        "at": "2026-11-10T10:19:00.096Z",
+        "at": "2026-11-10T11:35:17.940Z",
         "feeds": 5,
         "failed": 0,
         "fresh": 0,
@@ -224,30 +219,30 @@
       }
     },
     {
-      "at": 1675,
+      "at": 2127,
       "name": "下一次巡检",
-      "info": "2153 秒后"
+      "info": "83975 秒后"
     },
     {
-      "at": 1800,
+      "at": 2314,
       "name": "它现在看几个源",
       "info": {
         "feeds": 5
       }
     },
     {
-      "at": 2021,
+      "at": 2559,
       "name": "已受理",
       "info": {
-        "operationId": "live-20261110101900",
-        "session": "297"
+        "operationId": "live-20261110113518",
+        "session": "319"
       }
     },
     {
-      "at": 9842,
+      "at": 10390,
       "name": "目标",
       "info": {
-        "id": "h70nzu",
+        "id": "jdd6cg",
         "status": "done",
         "runs": 1,
         "why": "第 1 轮满足全部条件。"
