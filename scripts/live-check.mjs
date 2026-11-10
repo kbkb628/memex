@@ -18,6 +18,7 @@
  *   MEMEX_TOKEN  访问 token
  *   OUT          产物路径，默认 receipts/live.json
  *   SKIP_GOAL=1  跳过目标那一节（省钱，或者线上还是旧版本时）
+ *   RUN_INGEST=1 现在就让线上跑一轮抓取（换过源之后用它证明「打得到」，而不是等下一次定时）
  */
 
 import { createHash } from "node:crypto";
@@ -28,6 +29,7 @@ const BASE = (process.env.BASE || "").replace(/\/$/, "");
 const TOKEN = process.env.MEMEX_TOKEN || "";
 const OUT = process.env.OUT || "receipts/live.json";
 const SKIP_GOAL = process.env.SKIP_GOAL === "1";
+const RUN_INGEST = process.env.RUN_INGEST === "1";
 
 if (!BASE) throw new Error("BASE 没设：给一个线上地址，比如 https://xxx.workers.dev");
 if (!TOKEN) throw new Error("MEMEX_TOKEN 没设：线上配了 ACCESS_TOKENS 之后，所有数据接口都要带它");
@@ -192,6 +194,28 @@ async function main() {
   }
   // 「有源坏」是外部事实，不该红；「全坏」才是它其实什么都没看。这两件事分开。
   check("抓取不是全军覆没", total > 0 && down.length < total, `${total - down.length}/${total} 通`);
+
+  // 换过源之后，只读「上一轮的结果」是不够的 —— 上一轮可能是旧源跑的。
+  // 这一段让线上当场跑一轮，验的是「worker 从这个网络里打得到这几个新地址」。
+  // 今天整件事的教训就在这儿：定时器在转、`ingest.last` 有记录，都不等于抓到了东西。
+  if (RUN_INGEST) {
+    const ran = await http("/ingest/run", { method: "POST" }, 120_000);
+    const r = ran.body ?? {};
+    step("刚跑的一轮抓取", {
+      at: r.at ? new Date(r.at).toISOString() : null,
+      feeds: r.feeds,
+      failed: (r.failed ?? []).length,
+      fresh: r.fresh,
+      submitted: r.submitted,
+      baselined: r.baselined ?? 0,
+    });
+    if ((r.failed ?? []).length) {
+      step("这一轮坏掉的源", r.failed.map((f) => `${f.feed} → ${f.error}`).join(" ｜ "));
+    }
+    check("当场跑一轮也拿到了结果", ran.status === 200 && typeof r.at === "number", `${ran.status}`);
+    check("当场这一轮没有源报错", r.feeds > 0 && (r.failed ?? []).length === 0, `${(r.feeds ?? 0) - (r.failed ?? []).length}/${r.feeds ?? 0} 通`);
+    if (r.baselined) step("这一轮只是基线", `${r.baselined} 个源第一次接上，一条都不提交`);
+  }
 
   if (typeof next === "number") {
     const waitMs = next - Date.now();

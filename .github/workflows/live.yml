@@ -28,6 +28,10 @@ on:
         description: 把线上的源换成代码里的默认源（只在改过默认源时给一次 true）
         type: boolean
         default: false
+      run_ingest:
+        description: 让线上当场跑一轮抓取（换过源之后用它证明打得到，不等下一次定时）
+        type: boolean
+        default: false
       swap_sources:
         description: 换 HN 那三个源的取数地址（hnrss 已不可用；会重建基线）
         type: boolean
@@ -81,6 +85,7 @@ jobs:
           BASE: ${{ inputs.base }}
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
           SKIP_GOAL: ${{ inputs.skip_goal && '1' || '0' }}
+          RUN_INGEST: ${{ inputs.run_ingest && '1' || '0' }}
           OUT: receipts/live.json
         run: node scripts/live-check.mjs
 
