@@ -16,7 +16,7 @@
  */
 
 import { createServer } from "node:http";
-import { fetchFeed, makeWant, readWant } from "../src/feeds.ts";
+import { fetchFeed, hash, makeWant, parseHnSearch, readWant } from "../src/feeds.ts";
 
 const checks = [];
 function check(name, pass, detail) {
@@ -52,6 +52,43 @@ const server = createServer((req, res) => {
   if (path === "/always502") {
     res.writeHead(502, { "content-type": "text/html" });
     res.end("<html><body>502 Bad Gateway</body></html>");
+    return;
+  }
+
+  if (path === "/hn") {
+    // HN 搜索接口的形态：JSON、content-type 是 application/json。
+    // 这里要验的是「同一个入口按 content-type 分派」，不是 DNS 或域名白名单 ——
+    // 桩服务的地址是 127.0.0.1，任何按域名判断的写法都会在这里现原形。
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        hits: [
+          {
+            objectID: "41000001",
+            title: "Why we moved off Durable Objects",
+            url: "https://example.com/post",
+            points: 59,
+            num_comments: 13,
+            created_at_i: 1794000000,
+          },
+          {
+            objectID: "41000002",
+            title: "Ask HN: how do you persist agent state?",
+            url: null,
+            points: 21,
+            num_comments: 4,
+            story_text: "我们在找一个能长期跑的做法。",
+            created_at_i: 1794100000,
+          },
+        ],
+      }),
+    );
+    return;
+  }
+
+  if (path === "/hn-empty") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ hits: [] }));
     return;
   }
 
@@ -94,6 +131,23 @@ try {
   const fine = await fetchFeed(`${base}/ok`);
   check("正常的源一次就拿到", fine.ok === true && fine.items.length === 1, fine.ok ? fine.items[0].title : fine.error);
   check("正常路径没有多余请求", hits.get("/ok") === 1, `${hits.get("/ok")} 次`);
+  // 6. JSON 也从同一个入口进来（HN 搜索接口）
+  const hn = await fetchFeed(`${base}/hn`);
+  check("按 content-type 分派：JSON 也能抓", hn.ok === true, hn.ok ? `${hn.items.length} 条` : hn.error);
+  if (hn.ok) {
+    const first = hn.items.find((i) => i.title.startsWith("Why we moved"));
+    check("标题解析出来了", !!first, first?.title);
+    check("外链帖的 link 用原文地址", first?.link === "https://example.com/post", first?.link);
+    check("分数和评论数进了摘要", !!first?.summary.includes("59 分") && !!first?.summary.includes("13 条评论"), first?.summary.slice(0, 40));
+    check("时间解析出来了", first?.publishedAt === 1794000000 * 1000, String(first?.publishedAt));
+
+    const ask = hn.items.find((i) => i.title.startsWith("Ask HN"));
+    check("没有外链时退回讨论页", ask?.link === "https://news.ycombinator.com/item?id=41000002", ask?.link);
+    check("正文进了摘要", !!ask?.summary.includes("长期跑"), ask?.summary.slice(0, 40));
+  }
+
+  const emptyHn = await fetchFeed(`${base}/hn-empty`);
+  check("一条都没命中时报「关键词太窄」", emptyHn.ok === false && emptyHn.error.includes("关键词"), emptyHn.ok ? "竟然成功了" : emptyHn.error);
 } finally {
   server.close();
 }
@@ -113,6 +167,16 @@ check(
   JSON.stringify(makeWant("踩坑记录", " 招聘 ")) === JSON.stringify({ about: "踩坑记录", avoid: "招聘" }),
 );
 check("空 avoid 等于没填", makeWant("踩坑记录", "   ") === "踩坑记录");
+
+// 7. 纯解析：id 要稳定，垃圾输入不能抛
+const raw = JSON.stringify({ hits: [{ objectID: 123, title: "同一个帖子", url: "https://a.example/x", points: 30 }] });
+const once = parseHnSearch(raw);
+const twice = parseHnSearch(raw);
+check("同一个帖子两次解析出同一个 id", once[0]?.id === twice[0]?.id, once[0]?.id);
+check("id 不含链接（换外链不该让它重新出现）", once[0]?.id !== hash("https://a.example/x"));
+check("坏 JSON 不抛，返回空", parseHnSearch("{ 这不是 json").length === 0);
+check("hits 不是数组也返回空", parseHnSearch(JSON.stringify({ hits: "nope" })).length === 0);
+check("没有标题的条目丢掉", parseHnSearch(JSON.stringify({ hits: [{ objectID: 1, url: "https://x.example" }] })).length === 0);
 
 const ok = checks.every((c) => c.pass);
 console.log(`\n${ok ? "全部通过" : "有检查没过"}  ${checks.filter((c) => c.pass).length}/${checks.length}\n`);

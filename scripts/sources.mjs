@@ -11,6 +11,8 @@
  *   BASE=... node scripts/sources.mjs --drop https://hnrss.org/frontpage
  *   BASE=... node scripts/sources.mjs --sync-want          # 只列差异
  *   BASE=... node scripts/sources.mjs --sync-want --apply  # 真改
+ *   BASE=... node scripts/sources.mjs --migrate            # 只列计划
+ *   BASE=... node scripts/sources.mjs --migrate --apply    # 换地址并重建基线
  *
  * 默认只做「加」，删除必须显式给 URL —— 这个脚本不该有能力悄悄删掉一个源，
  * 因为删源会连带删掉那个源在收件箱里的条目（009）。
@@ -116,6 +118,64 @@ if (args.includes("--sync-want")) {
     console.log(`  已更新 ${f.label}`);
   }
   if (!apply) console.log("\n以上只是列出差异，没有改。加 --apply 才写入。");
+}
+
+// 同一个源换了取数地址（hnrss → 搜索接口）：label 没变，url 变了。
+//
+// 为什么不能只靠 `--add-defaults`：那个按 url 判「有没有」，于是新地址会被
+// 当成新源加进来，旧地址那个还在，每轮巡检继续 502 一次，`failed[]` 里
+// 永远挂着三条坏源 —— 而页面上「有源在坏」这个信号就从此不再有信息量。
+//
+// 为什么身份用 label 不用 url：换地址的时候，url 正是变的那一侧。
+// 这条规则只在「代码里的默认源」和「线上已有的源」之间生效，不会误伤
+// 用户自己加的源 —— 那些的 label 不在 DEFAULT_FEEDS 里。
+if (args.includes("--migrate")) {
+  const apply = args.includes("--apply");
+  const current = await list();
+  const plans = [];
+  for (const f of DEFAULT_FEEDS) {
+    if (current.some((x) => x.url === f.url)) continue;
+    plans.push({ feed: f, old: current.find((x) => x.label === f.label) ?? null });
+  }
+  if (!plans.length) console.log("  没有要迁移的源（地址都对得上）。");
+
+  for (const { feed, old } of plans) {
+    const brief = readWant(feed.want);
+    if (!apply) {
+      console.log(`  ${old ? "换地址" : "新增"}：${feed.label}`);
+      if (old) console.log(`    旧：${old.url}\n    新：${feed.url}`);
+      continue;
+    }
+    if (old) {
+      const removed = await call("/feeds/remove", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: old.id }),
+      });
+      if (removed.status !== 200) {
+        console.log(`  删不掉旧的 ${feed.label}：${removed.body.error ?? removed.status}`);
+        continue;
+      }
+      console.log(`  删掉旧地址 ${feed.label}，连带清掉 ${removed.body.removedItems ?? 0} 条记录`);
+    }
+    const res = await call("/feeds", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        url: feed.url,
+        label: feed.label,
+        want: brief.about,
+        avoid: brief.avoid,
+        prefilter: feed.prefilter,
+      }),
+    });
+    if (res.status !== 200) {
+      console.log(`  加不上 ${feed.label}：${res.body.error ?? res.status}`);
+      continue;
+    }
+    console.log(`  接上 ${feed.label}（基线 ${res.body.baseline} 条，一条都不提交）`);
+  }
+  if (!apply) console.log("\n以上只是计划，没有动。加 --apply 才执行。");
 }
 
 if (args.includes("--add-defaults")) {

@@ -78,6 +78,17 @@ export type FetchResult =
   | { ok: true; title: string; items: FeedItem[] }
   | { ok: false; error: string };
 
+/** HN 搜索接口返回的一条。字段都是可空的 —— 对面改过一个字段，这里就该静默降级。 */
+type HnHit = {
+  objectID?: string | number | null;
+  title?: string | null;
+  url?: string | null;
+  story_text?: string | null;
+  points?: number | null;
+  num_comments?: number | null;
+  created_at_i?: number | null;
+};
+
 /**
  * 判断一条内容值不值得花一次模型调用，在调用之前先问一遍。
  *
@@ -211,18 +222,84 @@ export async function fetchFeed(url: string): Promise<FetchResult> {
   const bytes = await readCapped(response);
   if (!bytes.length) return { ok: false, error: "响应体是空的。" };
 
-  const xml = decodeFeed(bytes, response.headers.get("content-type") ?? "");
-  const items = parseFeed(xml, target);
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = decodeFeed(bytes, contentType);
+  // 同一个入口认两种格式：RSS/Atom，和搜索接口的 JSON。
+  //
+  // 按 content-type 分派，不按域名认：格式是响应自己声明的事实，
+  // 域名只是我们碰巧知道的一个约定。哪天搜索服务换了地址，这里不用改。
+  const isJson = /json/i.test(contentType) || body.trimStart().startsWith("{");
+  const items = isJson ? parseHnSearch(body) : parseFeed(body, target);
+
   if (!items.length) {
     // 这是最需要说清楚的一种失败：拿到了 200，但里面没有条目。
-    // 可能是因为它是一张网页而不是订阅源，也可能是它今天确实没更新。
     return {
       ok: false,
-      error: `拿到了 ${bytes.length} 字节，但里面解析不出任何条目。可能这个地址返回的是网页而不是 RSS/Atom。`,
+      error: isJson
+        ? `拿到了 ${bytes.length} 字节，但这个搜索关键词一条都没命中。多半是关键词太窄，不是网络问题。`
+        : `拿到了 ${bytes.length} 字节，但里面解析不出任何条目。可能这个地址返回的是网页而不是 RSS/Atom。`,
     };
   }
 
-  return { ok: true, title: channelTitle(xml) ?? target.hostname, items };
+  return { ok: true, title: isJson ? target.hostname : (channelTitle(body) ?? target.hostname), items };
+}
+
+/**
+ * 解析 HN 搜索接口（Algolia）的结果。
+ *
+ * 为什么不继续用 hnrss：它是别人架在这个接口上的一层 RSS 包装，多一跳就多一个
+ * 会坏的地方 —— 2026-11-10 它三个订阅一起 502 了一整天，而这三个源承载了
+ * 全部 HN 内容，于是实例连着几轮 `fresh: 0`，页面上却只写着「定时器正常」。
+ *
+ * 直接吃 JSON 还顺手多了两样原来没有的东西：分数和评论数。它们进摘要，
+ * 因为「300 分的帖子和 21 分的帖子」对判断值不值得看是真实的信号，
+ * 而 hnrss 只给标题和链接 —— 模型只能靠标题猜，猜不准就报「材料不足」。
+ */
+export function parseHnSearch(json: string): FeedItem[] {
+  let data: { hits?: HnHit[] };
+  try {
+    data = JSON.parse(json) as { hits?: HnHit[] };
+  } catch {
+    // 不是 JSON 就当作没结果，交给调用方报「一条都没命中」。
+    // 不抛异常：这个函数在 cron 里跑，抛出去等于整轮抓取中断。
+    return [];
+  }
+
+  const hits = Array.isArray(data?.hits) ? data.hits : [];
+  const items: FeedItem[] = [];
+
+  for (const hit of hits) {
+    const objectId = hit?.objectID == null ? "" : String(hit.objectID);
+    // 讨论页是唯一一定存在的链接：外链帖有 url，Ask HN 之类没有。
+    const discussion = objectId ? `https://news.ycombinator.com/item?id=${objectId}` : "";
+    const title = clean(String(hit?.title ?? ""));
+    const link = String(hit?.url ?? "") || discussion;
+    if (!title || !link) continue;
+
+    const signals = [
+      typeof hit.points === "number" ? `${hit.points} 分` : "",
+      typeof hit.num_comments === "number" ? `${hit.num_comments} 条评论` : "",
+      discussion ? `讨论页 ${discussion}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const text = clean(String(hit?.story_text ?? ""));
+
+    items.push({
+      // id 用帖子号，不用链接：同一个帖子换了外链，或者我们哪天改用讨论页做 link，
+      // 都不该让它重新出现一遍。链接是会变的东西，帖子号不会。
+      id: hash(objectId ? `hn:${objectId}` : link),
+      title,
+      link,
+      summary: clean([signals, text].filter(Boolean).join("。")).slice(0, SUMMARY_CHARS),
+      ...(typeof hit.created_at_i === "number" ? { publishedAt: hit.created_at_i * 1000 } : {}),
+    });
+  }
+
+  if (items.some((i) => i.publishedAt)) {
+    items.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
+  }
+  return items.slice(0, MAX_ITEMS);
 }
 
 /**
@@ -511,18 +588,53 @@ export const DEFAULT_FEEDS: { url: string; label: string; want: FeedWant; prefil
   // 换成关键词订阅之后，「筛」这个动作从「事后判」挪到了「事前就不抓」。
   // 同一天量过：`newest?q="durable objects"` 回来 19 条，几乎条条对题。
   //
-  // `points=20` 是第二道筛子：让分数替我们判断「有没有人觉得这条值得看」。
-  // 代价是刚发出来、还没攒到 20 分的帖子永远看不到 —— 对「发现」这个用途可以接受。
+  // 2026-11-10 又换了一次，这次换的是**取数的路**，而且是被逼的：
+  // hnrss 三个订阅一起 502 了一整天（本机和线上 worker 各自打，结果一样），
+  // 实例连着几轮 `fresh: 0` 却只写着「定时器正常」。它只是别人架在
+  // HN 搜索接口上的一层 RSS 包装，多一跳就多一个会坏的地方，于是直接吃 JSON。
+  //
+  // 顺带量到一个更值得记的东西：**「精度优先」会把源做成化石**。
+  // 加引号的短语查询（`"llm agent"`）精度确实高，但最近一条命中停在 9 个月前 ——
+  // 标题必须一字不差地含这个短语、还要攒到 20 分，两个条件同时成立太罕见。
+  // 去掉引号（两个词都要出现）+ 只搜标题和链接之后，最新命中变成三天前。
+  // ADR 014 当初只量了「准不准」，没量「最后一次命中是哪天」。
+  // 一个再准、但半年没有新内容的源，对「发现」这件事等于零。
+  //
+  // 然后是今晚最难看的一个数字：**这三个源加起来一周只有一条**。
+  // 按「标题命中 + 20 分以上 + 最近 7 天」量：
+  //   durable objects 0、agent runtime 0、llm agent 1。
+  // 而进量恰恰是这个产品最不该缺的东西 —— 一个每天什么都不给你的助手，
+  // 判定层做得再准也没有意义。ADR 014 当时量的是「准不准」，
+  // 没量「一周能给几条」，而后者才是可用的前提。
+  //
+  // 两处调整，各有一条依据：
+  //
+  // 1) 去掉 `points>20`。分数在这里不代表质量，只代表发得早晚：
+  //    1 分 0 评那批标题里就有「升级 agent 踩了什么坑」「用 SQLite 替掉回合式 agent」，
+  //    正是要的东西；而 20 分那条「Stop running everything through LLMs」
+  //    只是发得早。把判值的活交给模型，本来就该是模型的活。
+  //    放开后一周进量：cloudflare workers 3、agent runtime 6、llm agent 14。
+  //
+  // 2) `durable objects` 换成 `cloudflare workers`。
+  //    不是嫌它不准，是它真的没量：标题命中最近 30 天内 0 条，
+  //    就算把分数门槛降到 0 还是 0。同一个运行时话题换个词就有 3 条 ——
+  //    Durable Objects 是 Workers 的一部分，社区在聊的是后者。
+  //    留一个永远空转的源，等于在页面上摆一个「一切正常」的假象。
+  //
+  // 仍然保留 `restrictSearchableAttributes=title,url`：默认会连正文一起搜，
+  // 于是「Reverse Engineering SimTower」这种只在正文里提过一句的帖子也会进来。
+  // 收窄到标题之后噪音少了一截，代价是召回少一点 —— 这一条是拿召回换精度，
+  // 与上面那条相反。两笔账的净效果：每条都跟题目有关，值不值得看交给模型。
   {
-    url: "https://hnrss.org/newest?q=%22durable+objects%22&points=20",
-    label: "HN · durable objects",
+    url: "https://hn.algolia.com/api/v1/search_by_date?query=cloudflare+workers&tags=story&hitsPerPage=20&restrictSearchableAttributes=title,url",
+    label: "HN · cloudflare workers",
     want: {
-      about: "有人真的用它做了东西、或者踩了坑的具体记录：自托管实现、状态与恢复的真实问题、成本事故、迁移复盘。",
-      avoid: "融资、招聘、发布公告、纯观点。",
+      about: "有人真的在 Workers / Durable Objects 上做了东西、或者踩了坑的具体记录：运行时限制、状态与恢复的真实问题、成本事故、迁移复盘、自托管替代。",
+      avoid: "融资、招聘、产品发布公告、纯观点。",
     },
   },
   {
-    url: "https://hnrss.org/newest?q=%22agent+runtime%22&points=20",
+    url: "https://hn.algolia.com/api/v1/search_by_date?query=agent+runtime&tags=story&hitsPerPage=20&restrictSearchableAttributes=title,url",
     label: "HN · agent runtime",
     want: {
       about: "agent 运行时本身怎么做的：沙箱、执行循环、权限与审计、长任务怎么恢复。",
@@ -530,7 +642,7 @@ export const DEFAULT_FEEDS: { url: string; label: string; want: FeedWant; prefil
     },
   },
   {
-    url: "https://hnrss.org/newest?q=%22llm+agent%22&points=20",
+    url: "https://hn.algolia.com/api/v1/search_by_date?query=llm+agent&tags=story&hitsPerPage=20&restrictSearchableAttributes=title,url",
     label: "HN · llm agent",
     want: {
       about: "agent 工程里具体的做法和翻车：上下文管理、工具调用的可靠性、评测暴露出来的问题。以及模型能力边界的位移 —— 某类任务首次由开源权重模型完成，且附了可复现的 demo、代码或具体 benchmark 数字。",

@@ -28,6 +28,10 @@ on:
         description: 把线上的源换成代码里的默认源（只在改过默认源时给一次 true）
         type: boolean
         default: false
+      swap_sources:
+        description: 换 HN 那三个源的取数地址（hnrss 已不可用；会重建基线）
+        type: boolean
+        default: false
 
 jobs:
   live:
@@ -48,6 +52,20 @@ jobs:
           BASE: ${{ inputs.base }}
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
         run: node scripts/sources.mjs --drop https://hnrss.org/frontpage --add-defaults
+
+      # 2026-11-10：hnrss 三个订阅一起 502 了一整天，线上 worker 打过去也是 502，
+      # 于是实例连着几轮 `fresh: 0` 而页面上只写着「定时器正常」。
+      # 源要的东西没变，变的是取数的路 —— 所以换地址、不新增源。
+      # 旧的那个必须显式删掉：留着它每轮巡检继续记一条「抓不到」，
+      # 而「有源在坏」这个信号从此就不再有任何信息量。
+      - name: 换 HN 的取数地址
+        if: ${{ inputs.swap_sources }}
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+        run: |
+          node scripts/sources.mjs --drop 'https://hnrss.org/newest?q=%22durable+objects%22&points=20' || true
+          node scripts/sources.mjs --migrate --apply
 
       # 改口径：线上源的 want 存在 Durable Object 里，改代码不会动它。
       # 这一步只在「代码里的口径变了」时用一次，平时别开。

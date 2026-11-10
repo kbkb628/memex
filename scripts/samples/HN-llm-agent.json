@@ -1,37 +1,44 @@
 [
   {
-    "id": "1twgeqx",
-    "title": "Stop running everything through LLMs: How I fixed my research agent",
-    "link": "https://www.tinyfish.ai/blog/inside-tinyresearch",
-    "summary": "Article URL: https://www.tinyfish.ai/blog/inside-tinyresearch Comments URL: https://news.ycombinator.com/item?id=50389479 Points: 22 # Comments: 1",
-    "publishedAt": 1793952298000
+    "id": "109phqi",
+    "title": "MemoryDojo: Benchmarking Poisoning Through LLM Agent Memory",
+    "link": "https://arxiv.org/abs/2611.09721",
+    "summary": "1 分 · 0 条评论 · 讨论页 https://news.ycombinator.com/item?id=50437547",
+    "publishedAt": 1794299289000
   },
   {
-    "id": "1ihmvxb",
-    "title": "LLM agents play Pokemon showdown",
-    "link": "https://olivergrabner.com/research/pokemon/",
-    "summary": "Article URL: https://olivergrabner.com/research/pokemon/ Comments URL: https://news.ycombinator.com/item?id=50190334 Points: 31 # Comments: 17",
-    "publishedAt": 1792635228000
+    "id": "1viia84",
+    "title": "Socratic-tutor – turns an LLM into a strict personal tutor",
+    "link": "https://github.com/janestreet/agent_skills",
+    "summary": "1 分 · 0 条评论 · 讨论页 https://news.ycombinator.com/item?id=50436087",
+    "publishedAt": 1794285119000
   },
   {
-    "id": "xsg23o",
-    "title": "Hybrid Reasoning Agents: LLM agents that think in latent space, act through text",
-    "link": "https://arxiv.org/abs/2610.18861",
-    "summary": "https://x.com/Jiaru_Zou/status/2110400256647340476 https://github.com/togethercomputer/HybridAgent https://huggingface.co/collections/togethercomputer/hybridag... Evaluations: https://arxiv.org/html/2610.18861v1#S5 Comments URL: https://news.ycombinator.com/item?id=50145337 Points: 520 # Comments: 239",
-    "publishedAt": 1792356494000
+    "id": "rttnj6",
+    "title": "FlashStates Unlocking Flexible Hybrid State Management for Agentic LLM Inference",
+    "link": "https://flashstates.ai/",
+    "summary": "1 分 · 0 条评论 · 讨论页 https://news.ycombinator.com/item?id=50436074",
+    "publishedAt": 1794284975000
   },
   {
-    "id": "38dbq6",
-    "title": "Show HN: Jevcrawl – A web crawler for AI agents with no LLM in the crawl loop",
-    "link": "https://github.com/RayenMlayeh/jevcrawl",
-    "summary": "Article URL: https://github.com/RayenMlayeh/jevcrawl Comments URL: https://news.ycombinator.com/item?id=50080450 Points: 21 # Comments: 3",
-    "publishedAt": 1791934520000
+    "id": "1x67t3n",
+    "title": "What broke when I upgraded my agent from Sonnet 5 to Sonnet 5.5",
+    "link": "https://www.evalshift.dev/blog/llm-regression-testing-model-upgrade",
+    "summary": "1 分 · 0 条评论 · 讨论页 https://news.ycombinator.com/item?id=50428926",
+    "publishedAt": 1794246767000
   },
   {
-    "id": "9p2rnc",
-    "title": "Understanding the Impact of LLM Watermarking on AI Agent Behavior",
-    "link": "https://www.lasso.security/blog/the-provenance-tax-understanding-the-impact-of-llm-watermarking-on-ai-agent-behavior",
-    "summary": "Article URL: https://www.lasso.security/blog/the-provenance-tax-understanding-the-impact-of-llm-watermarking-on-ai-agent-behavior Comments URL: https://news.ycombinator.com/item?id=49856149 Points: 59 # Comments: 72",
-    "publishedAt": 1790427936000
+    "id": "1z0erox",
+    "title": "LLM APIs ranked for teams building AI agents",
+    "link": "https://rankings.leffke.com/categories/llm-apis",
+    "summary": "1 分 · 0 条评论 · 讨论页 https://news.ycombinator.com/item?id=50425116",
+    "publishedAt": 1794229863000
+  },
+  {
+    "id": "12pidin",
+    "title": "Ava – On-device 1.2B LLM WhatsApp sales agent on Android ($0 cost)",
+    "link": "https://play.google.com/store/apps/details?id=com.dyagnosys.ava&hl=en_US",
+    "summary": "1 分 · 0 条评论 · 讨论页 https://news.ycombinator.com/item?id=50423989",
+    "publishedAt": 1794222466000
   }
 ]
