@@ -215,6 +215,21 @@ async function main() {
     check("当场跑一轮也拿到了结果", ran.status === 200 && typeof r.at === "number", `${ran.status}`);
     check("当场这一轮没有源报错", r.feeds > 0 && (r.failed ?? []).length === 0, `${(r.feeds ?? 0) - (r.failed ?? []).length}/${r.feeds ?? 0} 通`);
     if (r.baselined) step("这一轮只是基线", `${r.baselined} 个源第一次接上，一条都不提交`);
+
+    // 新提交的条目必须带着「哪份材料、哪个模型」。
+    //
+    // 只在真的提交了东西时才验：`submitted` 为 0 时收件箱里全是旧记录，
+    // 而旧记录本来就没有这两个字段 —— 拿它们去断言，红的是历史，不是代码。
+    if (r.submitted > 0) {
+      const box = await http("/inbox?all=1");
+      const items = box.body.items ?? [];
+      const fresh = items.slice(0, r.submitted);
+      const withFp = fresh.filter((i) => typeof i.fp === "string" && i.fp.length > 0);
+      check("新提交的条目带材料指纹", withFp.length === fresh.length, `${withFp.length}/${fresh.length}`);
+      const withModel = fresh.filter((i) => typeof i.model === "string" && i.model.length > 0);
+      check("新提交的条目记了判定模型", withModel.length === fresh.length, `${withModel.length}/${fresh.length}`);
+      step("指纹样本", fresh.map((i) => `${i.fp} @ ${i.model}`).join(" ｜ ").slice(0, 200));
+    }
   }
 
   if (typeof next === "number") {

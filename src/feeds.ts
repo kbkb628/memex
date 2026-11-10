@@ -455,6 +455,22 @@ export function hash(input: string): string {
   return (h >>> 0).toString(36);
 }
 
+/**
+ * 材料指纹：这一条被判定的时候，模型眼前到底是哪份内容。
+ *
+ * 它和 `item.id` 不是一回事，两个互补：
+ *   - `id` 来自源给的 guid，管「这条处理过没有」—— 源把标题改了它也不变，
+ *     这正是它该做的：同一篇东西不该因为改了个错别字就被重新判一遍。
+ *   - `fp` 来自标题 + 摘要，管「判的还是不是这一份」—— 源偷偷换了内容，
+ *     只有它能发现。
+ *
+ * 所以它必须只依赖材料本身：不掺 feed.label、不掺时间、不掺链接。
+ * 掺了就没有可比性，而它唯一的用途就是三天后重算一次，看等不等。
+ */
+export function fingerprint(item: { title: string; summary?: string }): string {
+  return hash(`${item.title}\n${item.summary ?? ""}`);
+}
+
 /** 订阅源给的编码不一定是 utf-8，虽然绝大多数是。 */
 function decodeFeed(bytes: Uint8Array, contentType: string): string {
   const declared = contentType.match(/charset\s*=\s*"?([\w-]+)"?/i)?.[1];

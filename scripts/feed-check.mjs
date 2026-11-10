@@ -16,7 +16,7 @@
  */
 
 import { createServer } from "node:http";
-import { fetchFeed, hash, makeWant, parseHnSearch, readWant } from "../src/feeds.ts";
+import { fetchFeed, fingerprint, hash, makeWant, parseHnSearch, readWant } from "../src/feeds.ts";
 
 const checks = [];
 function check(name, pass, detail) {
@@ -177,6 +177,22 @@ check("id 不含链接（换外链不该让它重新出现）", once[0]?.id !== 
 check("坏 JSON 不抛，返回空", parseHnSearch("{ 这不是 json").length === 0);
 check("hits 不是数组也返回空", parseHnSearch(JSON.stringify({ hits: "nope" })).length === 0);
 check("没有标题的条目丢掉", parseHnSearch(JSON.stringify({ hits: [{ objectID: 1, url: "https://x.example" }] })).length === 0);
+
+// 8. 材料指纹：唯一的用途是三天后重算一次看等不等，所以三件事必须成立 ——
+//    同样输入永远同值、标题变了要变、摘要变了要变。少了任何一条，
+//    它就退化成「一个看着像哈希的装饰」。
+const mat = { title: "Durable Objects 计费变了", summary: "按请求数计费改为按 CPU 时间。" };
+check("同一份材料算两次是同一个指纹", fingerprint(mat) === fingerprint({ ...mat }));
+check("标题变了指纹就变", fingerprint(mat) !== fingerprint({ ...mat, title: "Durable Objects 计费不变" }));
+check("摘要变了指纹也变（源偷偷换内容要能发现）", fingerprint(mat) !== fingerprint({ ...mat, summary: "换了整段摘要。" }));
+check("只有标题、没摘要时也有指纹，不抛", fingerprint({ title: "只有标题" }).length > 0);
+check(
+  "指纹和 id 不是一回事：id 由 guid 决定，改标题不该影响它",
+  fingerprint(mat) !== hash(mat.title),
+);
+// 换行是分隔符不是内容：拼标题和摘要的方式一变，历史指纹就全对不上了，
+// 所以这条要钉住 —— 它不是实现细节，是「旧记录还能不能核对」的前提。
+check("指纹的拼法固定为「标题\\n摘要」", fingerprint(mat) === hash("Durable Objects 计费变了\n按请求数计费改为按 CPU 时间。"));
 
 const ok = checks.every((c) => c.pass);
 console.log(`\n${ok ? "全部通过" : "有检查没过"}  ${checks.filter((c) => c.pass).length}/${checks.length}\n`);

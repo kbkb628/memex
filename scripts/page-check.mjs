@@ -50,6 +50,14 @@ for (const p of calls) check(`${p} 在 home.ts 里有路由`, routes.has(p), rou
 // 3. 反过来：页面自己声明要轮询的存储键，不能是空数组写死
 check("回执键写的是 localStorage 而不是内存变量", /localStorage\.setItem\(STORE/.test(script));
 
+// 4. 存下来但没人读的字段 = 白存（ADR 015）。
+//    判定现在留了材料指纹和模型，页面就必须真的渲染它们 —— 否则字段只是
+//    躺在 SQLite 里，而下一个复盘的人照样分不清「当时判的是不是眼前这条」。
+const fpShown = /item\.fp/.test(script);
+check("页面渲染了材料指纹 fp", fpShown, fpShown ? "" : "存了 fp 但没人读，等于没存");
+const modelShown = /item\.model/.test(script);
+check("页面渲染了判定用的模型", modelShown, modelShown ? "" : "换过模型后新旧判定分不开");
+
 const bad = checks.filter((c) => !c.pass);
 console.log(`\n${checks.length - bad.length}/${checks.length} 通过`);
 if (bad.length) {

@@ -211,7 +211,9 @@
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.style.marginTop = "6px";
-      meta.textContent = item.feed;
+      // 谁判的。看一条判断时第一个想问的就是这个 —— 换过模型之后，
+      // 不写这一句，新旧判定混在一起就看不出差异是模型带来的还是材料带来的。
+      meta.textContent = item.model ? item.feed + " · " + item.model : item.feed;
       el.appendChild(meta);
 
       box.appendChild(el);
@@ -282,6 +284,10 @@
       if (v && v.cited && v.cited.length) {
         bits.push("提到「" + v.cited.join(" / ") + "」");
       }
+      // 指纹是给「过几天回来核对」用的：材料会变（源改标题、换摘要），而判定留着。
+      // 重算一次，一样才说明你眼前这条就是它当时判的那份 —— 否则你其实在评价另一条。
+      if (item.fp) bits.push("fp " + item.fp);
+      if (item.model) bits.push(item.model);
       bits.push(item.feed, item.state === "failed" ? "没跑通" : "跳过", stamp(item.at));
 
       const meta = document.createElement("div");

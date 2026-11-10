@@ -21,6 +21,7 @@ import {
 import {
   DEFAULT_FEEDS,
   fetchFeed,
+  fingerprint,
   hash as hashId,
   INBOX_LIMIT,
   localDay,
@@ -180,6 +181,21 @@ type InboxItem = {
   given?: number;
   /** 拆开并核对过的判定。旧记录没有这个字段。 */
   verdict?: Verdict;
+  /**
+   * 材料指纹（标题 + 摘要）。`given` 记的是「给了多少」，它记的是「给了哪一份」。
+   *
+   * 光有字数证明不了什么：同一个源三天后可能发一条标题一样、摘要全换的东西，
+   * 那时你回头看到「材料 900 字」，没法判断当时判的是不是眼前这条。
+   * 重算一次 fp，等就说明是同一份材料，不等就说明不是 —— 这是唯一能做的核对。
+   */
+  fp?: string;
+  /**
+   * 判这条时用的模型 id。
+   *
+   * 换模型之后，新旧判定会混在同一个列表里。不记这一句，「上周那条判得准」
+   * 到底是因为模型变了还是因为材料变了，就永远分不清。
+   */
+  model?: string;
   read?: boolean;
 };
 
@@ -717,6 +733,12 @@ export class Home extends DurableObject<Env> {
           session: receipt.session,
           state: "pending",
           given: item.summary.length,
+          // 提交这一刻算，因为正文只在这里手边。判定是异步回来的，
+          // 等回来再算就得重新去抓一遍 —— 而那时源可能已经改了。
+          fp: fingerprint(item),
+          // 记的是「谁去判的」，不是「谁判完的」：一条提交出去，
+          // 用的是当下这个模型；中途换模型不该让这条的记录说谎。
+          model: this.setup.model.id,
         });
       }
     }
