@@ -83,14 +83,26 @@ async function main() {
   //
   // 用逐字节比对而不是「包含某个标题」：后者在改文案、改版式时永远为真，
   // 在真的部署旧版本时也可能为真（旧版本也有那个标题）。
+  // 比对前统一折成 LF。
+  //
+  // 这台机器 `core.autocrlf=true`，工作区是 CRLF；而检出仓库文件时是什么换行，
+  // 取决于检出环境（Windows 上 CRLF，Linux runner 上 LF）。不归一化的话，
+  // 同一个文件会算出两个哈希 —— 断言红了，内容和部署版本却毫无问题。
+  // 今天就是在这个坑上撞了一下：用 GitHub API 推上去的 blob 带着 CRLF，
+  // 本地 git 对象里是 LF，两边树哈希对不上，而 `git diff` 又说没差异。
+  //
+  // 折成 LF 之后比的仍然是内容，只是不再把「换行风格」算进差异里。
+  // 少盯一类差异不值得心疼 —— 它要抓的是「部署的不是这一版」，
+  // 不是「这一版被谁重排了换行」。
+  const asText = (buf) => Buffer.from(buf.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
   const pageRes = await fetch(`${BASE}/`, { signal: AbortSignal.timeout(20_000) });
   const pageBytes = Buffer.from(await pageRes.arrayBuffer());
-  const liveHash = createHash("sha256").update(pageBytes).digest("hex");
+  const liveHash = createHash("sha256").update(asText(pageBytes)).digest("hex");
   const localBytes = await readFile(path.resolve("public/index.html"));
-  const localHash = createHash("sha256").update(localBytes).digest("hex");
+  const localHash = createHash("sha256").update(asText(localBytes)).digest("hex");
   check("公网能拿到页面", pageRes.status === 200 && pageBytes.length > 1000, `${pageRes.status}, ${pageBytes.length} 字节`);
   check(
-    "线上那一页和仓库里这一页逐字节相同",
+    "线上那一页和仓库里这一页是同一份内容",
     liveHash === localHash,
     `${liveHash.slice(0, 12)} vs ${localHash.slice(0, 12)}`,
   );
@@ -151,6 +163,35 @@ async function main() {
     `ingest=${rIngest?.everyMs} patrol=${rPatrol?.everyMs}`,
   );
   check("每条都带下一次时间", typeof rIngest?.next === "number" && typeof rPatrol?.next === "number");
+
+  // 上一次抓取到底抓到了什么。
+  //
+  // 这一段以前没验：`/routines` 只验了「节奏在」，于是「定时器在转」和
+  // 「源真的抓得到」在线上长得一模一样。而今天本机打 hnrss 三个订阅全是
+  // 502，从上午 11:24 到 18:04 一直没好 —— 偏偏那三个源承载了全部 HN 内容。
+  // 没有这一条，线上到底抓没抓到，只能靠猜。
+  const ingestLast = rIngest?.last;
+  step(
+    "上一次抓取",
+    ingestLast
+      ? {
+          at: new Date(ingestLast.at).toISOString(),
+          feeds: ingestLast.feeds,
+          fresh: ingestLast.fresh,
+          submitted: ingestLast.submitted,
+          skipped: ingestLast.skipped,
+        }
+      : "还没跑过",
+  );
+  check("上一次抓取留下了记录", !!ingestLast && typeof ingestLast.at === "number");
+
+  const down = ingestLast?.failed ?? [];
+  const total = ingestLast?.feeds ?? 0;
+  if (down.length) {
+    step("抓不到的源", down.map((f) => `${f.feed} → ${f.error}`).join(" ｜ "));
+  }
+  // 「有源坏」是外部事实，不该红；「全坏」才是它其实什么都没看。这两件事分开。
+  check("抓取不是全军覆没", total > 0 && down.length < total, `${total - down.length}/${total} 通`);
 
   if (typeof next === "number") {
     const waitMs = next - Date.now();
