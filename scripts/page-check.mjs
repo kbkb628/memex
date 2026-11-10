@@ -58,6 +58,11 @@ check("页面渲染了材料指纹 fp", fpShown, fpShown ? "" : "存了 fp 但�
 const modelShown = /item\.model/.test(script);
 check("页面渲染了判定用的模型", modelShown, modelShown ? "" : "换过模型后新旧判定分不开");
 
+// 5. 同理：轮次现在全留着，但页面只铺最新一轮。没有「翻回去看」的入口，
+//    留 6 轮和留 3 轮对人是同一个东西 —— 而第 1 轮恰恰最能解释「之前为什么不行」。
+const roundsShown = /g\.rounds\.length > 1/.test(script) && /每一轮（/.test(script);
+check("页面能翻到每一轮", roundsShown, roundsShown ? "" : "轮次留了却没地方看");
+
 const bad = checks.filter((c) => !c.pass);
 console.log(`\n${checks.length - bad.length}/${checks.length} 通过`);
 if (bad.length) {

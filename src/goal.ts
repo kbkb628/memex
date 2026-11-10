@@ -22,11 +22,28 @@ export type Criterion =
 
 export type GoalStatus = "running" | "waiting" | "done" | "failed" | "cancelled";
 
-/** 一轮。答案只留最近几轮，多了没有意义 —— 目标没变，内容会重复。 */
+/**
+ * 单条答案留多少。
+ *
+ * 2000 字够看清一轮在干什么；6 轮 × 2000 也只有 12KB，离 DO 单值上限很远，
+ * 又不会被一条异常长的输出顶掉整个目标。超了截断并标 `truncated` ——
+ * 静默截断的答案，看起来和一个本来就短的答案是同一个东西，那只是把
+ * 「查不下去」换了个位置。
+ */
+export const ANSWER_LIMIT = 2000;
+
+/**
+ * 一轮。全部留，不裁。
+ *
+ * 上限由 `MAX_ROUNDS` 兜住（6 轮），所以这里不需要再叠一层「只留最近 N 条」——
+ * 那种逻辑存在本身就在说明轮次没有上限。
+ */
 export type GoalRound = {
   op: string;
   at: number;
   answer?: string;
+  /** 答案超过 `ANSWER_LIMIT`、被截过。看到 true 就该知道这不是全文。 */
+  truncated?: boolean;
   /** 这一轮每条条件的判定，结算时写入。 */
   met?: boolean[];
 };
@@ -42,7 +59,7 @@ export type Goal = {
   runs: number;
   maxRuns: number;
   createdAt: number;
-  /** 最近三轮，和 OpenDot 一样只回看三条。 */
+  /** 这个目标创建至今的每一轮，全部保留。 */
   rounds: GoalRound[];
   /** 还没结算的那一轮。空 = 现在该起新一轮。 */
   currentOp?: string;
@@ -181,6 +198,26 @@ export async function goalDigest(objective: string, criteria: string[]): Promise
   const text = JSON.stringify({ objective, criteria });
   const sum = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(sum).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 追加一轮，只追加，不裁剪。
+ *
+ * 之前这里是 `[...rounds, r].slice(-3)`，抄的是 OpenDot 的「只回看三条」。
+ * 但 OpenDot 回看三条是为了**喂下一轮参考**，而这里同一份数组还在当**记录**用 ——
+ * 第 4 轮一写，第 1 轮就没了。丢掉的恰恰是最有解释价值的那一轮：目标刚起，
+ * 它最容易没读材料就交差，而你事后想知道「为什么第 4 轮才做对」，答案通常在第 1 轮。
+ *
+ * 有了它，「为什么没做到」这个问题才第一次有地方可查。
+ */
+export function appendRound(rounds: GoalRound[], round: GoalRound): GoalRound[] {
+  const answer = round.answer ?? "";
+  const over = answer.length > ANSWER_LIMIT;
+  const next: GoalRound = { ...round, answer: over ? answer.slice(0, ANSWER_LIMIT) : answer };
+  // 没截就真的不写这个键。`false` 和「没有这个字段」在旧记录上必须长得一样，
+  // 否则读的人没法区分「这轮没截」和「这轮是旧格式、根本没截过」。
+  if (over) next.truncated = true;
+  return [...rounds, next];
 }
 
 /**

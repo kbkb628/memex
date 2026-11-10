@@ -8,6 +8,7 @@ import { systemExtension } from "./prompts";
 import { webExtension } from "./tools";
 import { parseVerdict, type Verdict } from "./verdict";
 import {
+  appendRound,
   decide,
   goalDigest,
   judge,
@@ -1246,7 +1247,10 @@ export class Home extends DurableObject<Env> {
       rounds: goal.rounds.map((r) => ({
         op: r.op,
         at: r.at,
-        answer: (r.answer ?? "").slice(0, 2000),
+        // 存储那一刻已经截过（ANSWER_LIMIT），这里不再截第二刀 ——
+        // 两处各自截一个数，就会出现「存的比看的长」这种没人说得清的状态。
+        answer: r.answer ?? "",
+        truncated: r.truncated === true,
         met: r.met,
       })),
     };
@@ -1399,7 +1403,8 @@ export class Home extends DurableObject<Env> {
       }
 
       const met = judge(criteria, answer);
-      const rounds = [...goal.rounds, { op: goal.currentOp, at: Date.now(), answer, met }].slice(-3);
+      // 只追加。上限由 MAX_ROUNDS 兜住，不再有「只留最近三轮」那一层。
+      const rounds = appendRound(goal.rounds, { op: goal.currentOp, at: Date.now(), answer, met });
       const next: Goal = { ...goal, rounds, currentOp: undefined };
 
       // 三道闸门的后两道全在 decide 里，这里只执行它的结论。

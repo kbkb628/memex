@@ -10,9 +10,12 @@
  */
 
 import {
+  ANSWER_LIMIT,
+  appendRound,
   decide,
   goalDigest,
   judge,
+  MAX_ROUNDS,
   mechanicalDone,
   normalizeForMatch,
   parseCriteria,
@@ -163,6 +166,38 @@ function check(name, pass, detail) {
   check("说明人工条件模型说了没用", text.includes("由人判断"), "");
   check("带上一轮的答案", text.includes("上一轮的答案"), "");
   check("明说自述不算", text.includes("自述不计入"), "");
+}
+
+// ---- 轮次留存：只追加，不裁剪
+//
+// 之前是 `.slice(-3)`，MAX_ROUNDS=6 —— 推满第 4 轮，第 1 轮就没了。
+// 而「为什么第 4 轮才做对」的答案通常在第 1 轮（目标刚起，最容易没读材料就交差）。
+// 丢掉的不是旧数据，是唯一能解释「之前为什么不行」的那一段。
+{
+  let rounds = [];
+  for (let i = 1; i <= MAX_ROUNDS; i++) {
+    rounds = appendRound(rounds, { op: `o${i}`, at: i, answer: `第 ${i} 轮的答案` });
+  }
+  check("推满 6 轮后 6 轮全在", rounds.length === MAX_ROUNDS, `${rounds.length} 轮`);
+  check("第 1 轮没有被挤掉", rounds[0]?.answer === "第 1 轮的答案", rounds[0]?.answer);
+  check("最后一轮仍在末尾", rounds.at(-1)?.answer === "第 6 轮的答案", rounds.at(-1)?.answer);
+  check(
+    "顺序是写入顺序，不是倒序",
+    rounds.every((r, i) => r.op === `o${i + 1}`),
+    rounds.map((r) => r.op).join(","),
+  );
+
+  const long = appendRound([], { op: "x", at: 0, answer: "字".repeat(ANSWER_LIMIT + 500) })[0];
+  check("超长答案被截到上限", long.answer.length === ANSWER_LIMIT, `${long.answer.length}/${ANSWER_LIMIT}`);
+  check("截过的标了 truncated", long.truncated === true);
+
+  const exact = appendRound([], { op: "y", at: 0, answer: "字".repeat(ANSWER_LIMIT) })[0];
+  check("正好等于上限不算截断", exact.answer.length === ANSWER_LIMIT && exact.truncated === undefined);
+
+  const short = appendRound([], { op: "z", at: 0, answer: "短的" })[0];
+  check("没截就真的不写 truncated 键", !("truncated" in short), Object.keys(short).join(","));
+
+  check("没有答案的一轮也不抛", appendRound([], { op: "n", at: 0 })[0].answer === "");
 }
 
 const failed = checks.filter((c) => !c.pass);

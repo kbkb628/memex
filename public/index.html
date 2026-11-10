@@ -611,6 +611,39 @@
       el.appendChild(p);
     }
 
+    // 每一轮都留着，但页面只铺最新那轮。想回答「为什么第 4 轮才做对」，
+    // 得能翻回第 1 轮 —— 6 轮以内直接铺开，不分页（计划 P1.1 的边界）。
+    // 只在多于一轮时出现：一轮的目标上面已经把答案摊开了，再加个折叠是重复。
+    if (g.rounds && g.rounds.length > 1) {
+      const det = document.createElement("details");
+      det.style.marginTop = "10px";
+
+      const sum = document.createElement("summary");
+      sum.textContent = "每一轮（" + g.rounds.length + " 轮）";
+      sum.style.cursor = "pointer";
+      det.appendChild(sum);
+
+      g.rounds.forEach((r, i) => {
+        const wrap = document.createElement("div");
+        wrap.className = "meta";
+        wrap.style.marginTop = "10px";
+
+        const head = document.createElement("div");
+        head.textContent =
+          "第 " + (i + 1) + " 轮 · " + stamp(r.at) + (r.truncated ? " · 答案超长被截断" : "");
+        wrap.appendChild(head);
+
+        const body = document.createElement("p");
+        body.style.color = "inherit";
+        body.textContent = r.answer || "（这一轮没有留下答案）";
+        wrap.appendChild(body);
+
+        det.appendChild(wrap);
+      });
+
+      el.appendChild(det);
+    }
+
     if (g.status === "running" || g.status === "waiting") {
       const bar = document.createElement("div");
       bar.style.marginTop = "8px";
