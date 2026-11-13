@@ -92,6 +92,30 @@ for (const i of items) {
   }
 }
 
+// 待判的每一条都问一次 /op：这条究竟是「pi 还在跑」还是「pi 早结算了、
+// 只是没人来搬」。这两件事外观完全一样 —— 都是 pending —— 但一个该等、
+// 一个该跑一轮 ingest。不分开，就只剩瞎猜。
+const waiting = items.filter((i) => i.state === "pending");
+if (waiting.length) {
+  console.log("");
+  console.log("待判的还卡在哪");
+  for (const i of waiting) {
+    const age = Math.round((Date.now() - i.at) / 60_000);
+    let line = `  ${pad(i.id, 10)}${pad(`${age} 分钟`, 10)}`;
+    try {
+      const r = await fetch(`${BASE}/op?id=${encodeURIComponent(i.id)}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+      const b = await r.json();
+      line += b.live ? `pi 仍持有 · ${b.status}` : `pi 已结算 · ${clip(b.text ?? b.error ?? "无输出", 40)}`;
+    } catch (error) {
+      line += `问不到：${error instanceof Error ? error.message : String(error)}`;
+    }
+    console.log(line);
+  }
+}
+
 console.log("");
 const kinds = new Map();
 for (const i of items.filter((x) => x.state === "skipped" || x.state === "failed")) {

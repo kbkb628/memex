@@ -31,6 +31,13 @@ const OUT = process.env.OUT || "receipts/live.json";
 const SKIP_GOAL = process.env.SKIP_GOAL === "1";
 const RUN_INGEST = process.env.RUN_INGEST === "1";
 
+/**
+ * 摄取周期。这个数只活在 worker 里（`INGEST_EVERY_MS`），脚本里复制一份是
+ * 有意的：如果哪天 worker 改了间隔而这个断言没跟着改，它要么误报要么失效，
+ * 两种都会被人看见 —— 比偷偷跟着变好。
+ */
+const INGEST_EVERY_MS = 3 * 60 * 60 * 1000;
+
 if (!BASE) throw new Error("BASE 没设：给一个线上地址，比如 https://xxx.workers.dev");
 if (!TOKEN) throw new Error("MEMEX_TOKEN 没设：线上配了 ACCESS_TOKENS 之后，所有数据接口都要带它");
 
@@ -199,14 +206,25 @@ async function main() {
   // 这一段让线上当场跑一轮，验的是「worker 从这个网络里打得到这几个新地址」。
   // 今天整件事的教训就在这儿：定时器在转、`ingest.last` 有记录，都不等于抓到了东西。
   if (RUN_INGEST) {
+    // 结算的账要能对上：这一轮说收了几条，待判就该少几条。
+    // 不看这个数，「settled: 1」和「状态里还是 pending」可以同时成立 ——
+    // 那正是今天那条卡了 9 小时的记录的处境。
+    const pre = await http("/status");
+    const pendingBefore = pre.body?.inbox?.pending;
+
     const ran = await http("/ingest/run", { method: "POST" }, 120_000);
     const r = ran.body ?? {};
+    const post = await http("/status");
+    const pendingAfter = post.body?.inbox?.pending;
     step("刚跑的一轮抓取", {
       at: r.at ? new Date(r.at).toISOString() : null,
       feeds: r.feeds,
       failed: (r.failed ?? []).length,
       fresh: r.fresh,
       submitted: r.submitted,
+      settled: r.settled,
+      skipped: r.skipped,
+      pending: `${pendingBefore} → ${pendingAfter}`,
       baselined: r.baselined ?? 0,
     });
     if ((r.failed ?? []).length) {
@@ -230,6 +248,28 @@ async function main() {
       check("新提交的条目记了判定模型", withModel.length === fresh.length, `${withModel.length}/${fresh.length}`);
       step("指纹样本", fresh.map((i) => `${i.fp} @ ${i.model}`).join(" ｜ ").slice(0, 200));
     }
+  }
+
+  // 待判不能无限期地待着。
+  //
+  // 一条提交出去的任务，正常情况下最晚在下一次摄取（3 小时一次）就被结算掉 ——
+  // settle() 每轮都会把「pi 已经不在跑」的全搬走。所以熬过一个完整周期再加
+  // 巡检的 30 分钟容差还挂着的，只有两种可能：结算坏了，或者 pi 把它弄丢了。
+  // 两种都不该靠人去翻收件箱才发现。11-13 那条挂了 9 小时，是我看快照才看见的。
+  {
+    const box = await http("/inbox?all=1");
+    const items = box.body.items ?? [];
+    const stale = items.filter((i) => i.state === "pending" && Date.now() - i.at > INGEST_EVERY_MS + 30 * 60_000);
+    const worst = items.filter((i) => i.state === "pending").sort((a, b) => a.at - b.at)[0];
+    step(
+      "最老的一条待判",
+      worst ? `${worst.id} 已挂 ${Math.round((Date.now() - worst.at) / 60_000)} 分钟` : "没有待判的",
+    );
+    check(
+      "没有熬过一个摄取周期的待判",
+      stale.length === 0,
+      stale.length ? stale.map((i) => `${i.id} ${Math.round((Date.now() - i.at) / 60_000)} 分钟`).join(" ｜ ") : "",
+    );
   }
 
   if (typeof next === "number") {
