@@ -36,6 +36,10 @@ on:
         description: 换 HN 那三个源的取数地址（hnrss 已不可用；会重建基线）
         type: boolean
         default: false
+      peek:
+        description: 只看一眼收件箱的判定分布（不做校验、不花模型）
+        type: boolean
+        default: false
 
 jobs:
   live:
@@ -80,7 +84,17 @@ jobs:
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
         run: node scripts/sources.mjs --sync-want --apply
 
+      # 只看不验。这台开发机到 workers.dev 整体不通（DNS 污染，直连边缘 IP 也 000），
+      # 所以「看一眼收件箱」这件事也只能借 runner 的眼睛。
+      - name: 看一眼收件箱
+        if: ${{ inputs.peek }}
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+        run: node scripts/peek.mjs --why
+
       - name: 从公网打线上实例
+        if: ${{ !inputs.peek }}
         env:
           BASE: ${{ inputs.base }}
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
@@ -90,7 +104,7 @@ jobs:
         run: node scripts/live-check.mjs
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !inputs.peek }}
         with:
           name: live-receipt
           path: receipts/live.json
