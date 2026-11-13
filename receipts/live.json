@@ -3,18 +3,18 @@
   "scenario": "live",
   "observed": true,
   "passed": true,
-  "when": "2026-11-10T11:35:26.975Z",
+  "when": "2026-11-13T15:33:29.415Z",
   "deploy": {
     "target": "https://personal-agent.kbkb628.workers.dev",
-    "from": "github-actions (GitHub Actions 1000000442)",
+    "from": "github-actions (GitHub Actions 1000000467)",
     "why": "这台开发机到 Cloudflare 边缘整体不通（DNS 污染 + 直连真实 IP 超时），所以从公网 runner 发起",
     "runtime": "Cloudflare Workers + Durable Object (SQLite), 线上"
   },
   "driver": "node scripts/live-check.mjs",
   "request": {
-    "operationId": "live-20261110113518",
-    "session": "319",
-    "probe": "用一句话回答：20261110113518 这个时间戳的年份是多少？只回一个数字。"
+    "operationId": "live-20261113153321",
+    "session": "661",
+    "probe": "用一句话回答：20261113153321 这个时间戳的年份是多少？只回一个数字。"
   },
   "checks": [
     {
@@ -25,12 +25,12 @@
     {
       "name": "公网能拿到页面",
       "pass": true,
-      "detail": "200, 28428 字节"
+      "detail": "200, 31356 字节"
     },
     {
       "name": "线上那一页和仓库里这一页是同一份内容",
       "pass": true,
-      "detail": "5c74b26435b4 vs 5c74b26435b4"
+      "detail": "93c8e8805475 vs 93c8e8805475"
     },
     {
       "name": "不带 token 打 /status → 401",
@@ -50,17 +50,17 @@
     {
       "name": "返回里有预算",
       "pass": true,
-      "detail": "{\"day\":\"2026-11-10\",\"used\":0,\"limit\":20,\"manual\":10,\"total\":10}"
+      "detail": "{\"day\":\"2026-11-13\",\"used\":7,\"limit\":20,\"manual\":2,\"total\":9}"
     },
     {
       "name": "/patrol 有下一次的时间",
       "pass": true,
-      "detail": "next=1794394493578"
+      "detail": "next=1794653694305"
     },
     {
       "name": "上一轮巡检真的执行过",
       "pass": true,
-      "detail": "2026-11-10T10:54:53.578Z"
+      "detail": "2026-11-13T10:54:54.305Z"
     },
     {
       "name": "/routines 返回两条定时",
@@ -96,9 +96,29 @@
       "detail": "5/5 通"
     },
     {
+      "name": "新提交的条目带材料指纹",
+      "pass": true,
+      "detail": "1/1"
+    },
+    {
+      "name": "新提交的条目记了判定模型",
+      "pass": true,
+      "detail": "1/1"
+    },
+    {
+      "name": "没有熬过一个摄取周期的待判",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "理由说读到了字数，记录里就有那次读取",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "name": "下一次巡检排在未来",
       "pass": true,
-      "detail": "83975 秒"
+      "detail": "69693 秒"
     },
     {
       "name": "每个源都读得出「我要什么」",
@@ -113,7 +133,7 @@
     {
       "name": "提交拿到回执",
       "pass": true,
-      "detail": "{\"operationId\":\"live-20261110113518\",\"session\":\"319\",\"accepted\":true,\"at\":1794310518933}"
+      "detail": "{\"operationId\":\"live-20261113153321\",\"session\":\"661\",\"accepted\":true,\"at\":1794584001597}"
     },
     {
       "name": "同 id 同文字重发被判重复",
@@ -123,7 +143,7 @@
     {
       "name": "重发落回同一条会话",
       "pass": true,
-      "detail": "319"
+      "detail": "661"
     },
     {
       "name": "线上跑完了，且答案是空的以外的东西",
@@ -133,7 +153,7 @@
     {
       "name": "回执答得出跑了多久",
       "pass": true,
-      "detail": "3432ms"
+      "detail": "3340ms"
     },
     {
       "name": "答案答到了问的那件事",
@@ -143,12 +163,12 @@
     {
       "name": "线上能建目标",
       "pass": true,
-      "detail": "jdd6cg"
+      "detail": "oztzpj"
     },
     {
       "name": "建完就起了第一轮",
       "pass": true,
-      "detail": "goal:jdd6cg:r1"
+      "detail": "goal:oztzpj:r1"
     },
     {
       "name": "线上目标有结论（done 或 failed）",
@@ -158,91 +178,109 @@
   ],
   "steps": [
     {
-      "at": 464,
+      "at": 518,
       "name": "页面",
       "info": {
-        "bytes": 28428,
-        "sha256": "5c74b26435b41dbc"
+        "bytes": 31356,
+        "sha256": "93c8e880547505a6"
       }
     },
     {
-      "at": 1166,
+      "at": 993,
       "name": "线上状态",
       "info": {
         "model": "deepseek/deepseek-flash",
         "feeds": 5,
         "inbox": {
-          "unread": 0,
-          "pending": 0
+          "unread": 8,
+          "pending": 1
         },
         "budget": {
-          "day": "2026-11-10",
-          "used": 0,
+          "day": "2026-11-13",
+          "used": 7,
           "limit": 20,
-          "manual": 10,
-          "total": 10
+          "manual": 2,
+          "total": 9
         }
       }
     },
     {
-      "at": 1250,
+      "at": 1045,
       "name": "上一次巡检",
       "info": {
-        "at": "2026-11-10T10:54:53.578Z",
-        "scanned": 26,
+        "at": "2026-11-13T10:54:54.305Z",
+        "scanned": 44,
         "retried": 0,
         "stuck": 0,
         "goals": 0
       }
     },
     {
-      "at": 1340,
+      "at": 1090,
       "name": "上一次抓取",
       "info": {
-        "at": "2026-11-10T10:58:21.162Z",
+        "at": "2026-11-13T15:13:01.730Z",
         "feeds": 5,
-        "fresh": 0,
-        "submitted": 0,
-        "skipped": 0
+        "fresh": 1,
+        "submitted": 1,
+        "skipped": 1
       }
     },
     {
-      "at": 2127,
+      "at": 2000,
       "name": "刚跑的一轮抓取",
       "info": {
-        "at": "2026-11-10T11:35:17.940Z",
+        "at": "2026-11-13T15:33:20.671Z",
         "feeds": 5,
         "failed": 0,
-        "fresh": 0,
-        "submitted": 0,
+        "fresh": 1,
+        "submitted": 1,
+        "settled": 1,
+        "skipped": 0,
+        "pending": "1 → 1",
         "baselined": 0
       }
     },
     {
-      "at": 2127,
-      "name": "下一次巡检",
-      "info": "83975 秒后"
+      "at": 2028,
+      "name": "指纹样本",
+      "info": "1dhi3k4 @ deepseek-flash"
     },
     {
-      "at": 2314,
+      "at": 2077,
+      "name": "最老的一条待判",
+      "info": "feed-11sgr1b-vs1nr5 已挂 0 分钟"
+    },
+    {
+      "at": 2077,
+      "name": "理由报了字数且带 reads 的条目",
+      "info": "0 条"
+    },
+    {
+      "at": 2077,
+      "name": "下一次巡检",
+      "info": "69693 秒后"
+    },
+    {
+      "at": 2119,
       "name": "它现在看几个源",
       "info": {
         "feeds": 5
       }
     },
     {
-      "at": 2559,
+      "at": 2226,
       "name": "已受理",
       "info": {
-        "operationId": "live-20261110113518",
-        "session": "319"
+        "operationId": "live-20261113153321",
+        "session": "661"
       }
     },
     {
-      "at": 10390,
+      "at": 9867,
       "name": "目标",
       "info": {
-        "id": "jdd6cg",
+        "id": "oztzpj",
         "status": "done",
         "runs": 1,
         "why": "第 1 轮满足全部条件。"
