@@ -58,6 +58,16 @@ check("页面渲染了材料指纹 fp", fpShown, fpShown ? "" : "存了 fp 但�
 const modelShown = /item\.model/.test(script);
 check("页面渲染了判定用的模型", modelShown, modelShown ? "" : "换过模型后新旧判定分不开");
 
+// 6. 它自己读了什么，必须在场。
+//
+//    这一条比上面两条更要紧：`材料 63 字` 和「它读了 3395 字正文才判」
+//    在页面上长大一模一样，而两者的可信度差一个数量级。只存不显示，
+//    这个字段就只是躺在 SQLite 里的一句自白。
+const readsShown = /item\.reads/.test(script);
+check("页面渲染了它自己读的页面", readsShown, readsShown ? "" : "存了 reads 但没人读，等于没存");
+const readsMerged = /"材料 " \+ v\.givenChars \+ " 字 · " \+ read/.test(script);
+check("材料字数和自读字数挨在一起", readsMerged, readsMerged ? "" : "分开显示时，会把「材料 63 字」读成「只看了 63 字」");
+
 // 5. 同理：轮次现在全留着，但页面只铺最新一轮。没有「翻回去看」的入口，
 //    留 6 轮和留 3 轮对人是同一个东西 —— 而第 1 轮恰恰最能解释「之前为什么不行」。
 const roundsShown = /g\.rounds\.length > 1/.test(script) && /每一轮（/.test(script);

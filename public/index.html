@@ -213,7 +213,10 @@
       meta.style.marginTop = "6px";
       // 谁判的。看一条判断时第一个想问的就是这个 —— 换过模型之后，
       // 不写这一句，新旧判定混在一起就看不出差异是模型带来的还是材料带来的。
-      meta.textContent = item.model ? item.feed + " · " + item.model : item.feed;
+      const head = item.model ? item.feed + " · " + item.model : item.feed;
+      // 它自己还去读了什么。列表里只有一行，所以只给数量；点开原页看细节。
+      const read = readLine(item.reads);
+      meta.textContent = read ? head + " · " + read : head;
       el.appendChild(meta);
 
       box.appendChild(el);
@@ -232,6 +235,25 @@
     const p = (n) => String(n).padStart(2, "0");
     return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
   };
+
+  // 它自己去读了哪些页面。
+  //
+  // 「材料 63 字」只说明我们喂了多少，不说明它看了多少 —— 它会自己 fetch_url
+  // 去读原文，而那一截以前没有任何记录。于是「只看标题就判」和「读完 3395 字
+  // 正文才判」在页面上完全一样。这一行把那两件事分开。
+  //
+  // 用函数声明而不是箭头函数：它要在上面那几个渲染函数里被用到，
+  // 这里是后面才写到的位置，const 会落在暂时性死区里。
+  function readLine(reads) {
+    if (!reads || !reads.length) return "";
+    const got = reads.filter((r) => typeof r.chars === "number");
+    const chars = got.reduce((sum, r) => sum + r.chars, 0);
+    const lost = reads.length - got.length;
+    const bits = [];
+    if (got.length) bits.push("自己读了 " + got.length + " 页（" + chars + " 字）");
+    if (lost) bits.push(lost + " 页没读到");
+    return bits.join("，");
+  }
 
   async function loadJudged() {
     const box = $("#judged");
@@ -280,7 +302,14 @@
       // 前者区分「读了正文才判」和「只看见标题就判」；后者区分「照口径跳的」
       // 和「含糊跳的」。都没有的话不硬凑一行。
       const bits = [];
-      if (v && typeof v.givenChars === "number") bits.push("材料 " + v.givenChars + " 字");
+      if (v && typeof v.givenChars === "number") {
+        // 只写「材料 63 字」会被读成「它只看了 63 个字就判了」，而它可能
+        // 自己去读了 3395 字的正文。两个数字必须同时在场，否则这一行在骗人。
+        const read = readLine(item.reads);
+        bits.push(read ? "材料 " + v.givenChars + " 字 · " + read : "材料 " + v.givenChars + " 字");
+      } else if (readLine(item.reads)) {
+        bits.push(readLine(item.reads));
+      }
       if (v && v.cited && v.cited.length) {
         bits.push("提到「" + v.cited.join(" / ") + "」");
       }

@@ -7,6 +7,7 @@ import { buildModels } from "./models";
 import { systemExtension } from "./prompts";
 import { webExtension } from "./tools";
 import { parseVerdict, type Verdict } from "./verdict";
+import { markerFor, readsFor, type Message, type Read } from "./reads";
 import {
   appendRound,
   decide,
@@ -197,6 +198,14 @@ type InboxItem = {
    * 到底是因为模型变了还是因为材料变了，就永远分不清。
    */
   model?: string;
+  /**
+   * 这条判定自己 fetch_url 读了哪些页面。
+   *
+   * `given` 记的是我们提交时喂进去的字数，而模型可以自己去读原文 ——
+   * 于是「只看 63 字标题就判」和「读了 3395 字正文才判」在记录上一样都是 63。
+   * 这个字段把两者分开。结算时从会话记录里取，不另存一份。
+   */
+  reads?: Read[];
   read?: boolean;
 };
 
@@ -760,6 +769,26 @@ export class Home extends DurableObject<Env> {
   }
 
   /**
+   * 把一条会话的记录摊平成消息列表，交给 readsFor 去切窗口。
+   *
+   * 不在这里做「按条目切」：EntryRecord 是按提交分的，而一次提交里模型可能
+   * 调好几次工具，还可能被 steer 打断。真正可靠的边界是「下一条提问」——
+   * 那个边界在消息层面就是 `role === "user"`，比条目 id 稳。
+   */
+  private async transcriptOf(session: string): Promise<Message[]> {
+    try {
+      const entries = await this.harness.messages({ session });
+      const messages: Message[] = [];
+      for (const entry of entries) {
+        for (const message of entry.model ?? []) messages.push(message);
+      }
+      return messages;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * 把已经跑完的任务搬进收件箱。
    *
    * 判据和 `op()` 一样：先问 pending，不在 pending 里就说明 pi 结算过了，
@@ -787,10 +816,14 @@ export class Home extends DurableObject<Env> {
 
     for (const [session, batch] of bySession) {
       const pendingIds = new Set((await this.harness.pending({ session })).map((p) => p.operationId));
+      const due = batch.filter(([, item]) => !pendingIds.has(item.id));
 
-      for (const [key, item] of batch) {
-        if (pendingIds.has(item.id)) continue;
+      // 会话记录只在真的有条目要结算时才读，而且一个会话只读一次。
+      // 读不到就让 reads 缺省 —— 「没记下来」比「记了个假的」好，
+      // 而让一条判定因为取不到证据而结算失败，是更坏的一种。
+      const messages = due.length ? await this.transcriptOf(session) : [];
 
+      for (const [key, item] of due) {
         let note = "";
         try {
           const result = await this.harness.wait(item.id, { session });
@@ -805,8 +838,16 @@ export class Home extends DurableObject<Env> {
         if (opNote && !opNote.endedAt) {
           await this.ctx.storage.put<Note>(`op:${item.id}`, { ...opNote, endedAt: Date.now() });
         }
+        // 它自己读了什么，结算这一刻才拿得到，也只能在这一刻记下来。
+        const reads = readsFor(messages, markerFor(item));
+
         if (!note) {
-          await this.ctx.storage.put<InboxItem>(key, { ...item, state: "failed", note: "任务没留下任何输出。" });
+          await this.ctx.storage.put<InboxItem>(key, {
+            ...item,
+            state: "failed",
+            note: "任务没留下任何输出。",
+            reads,
+          });
           continue;
         }
         const verdict = parseVerdict(note, briefs.get(item.feedId) ?? { about: "" }, item.given ?? 0);
@@ -818,11 +859,11 @@ export class Home extends DurableObject<Env> {
           // 而因为记录被删了，我看到的只是「收件箱是空的」，完全无法分辨
           // 它是「今天真的没新东西」还是「它判断错了」。**看不见的跳过等于没有发生过**，
           // 用户也就永远没机会把 `want` 调对。
-          await this.ctx.storage.put<InboxItem>(key, { ...item, state: "skipped", note, verdict });
+          await this.ctx.storage.put<InboxItem>(key, { ...item, state: "skipped", note, verdict, reads });
           skipped++;
           continue;
         }
-        await this.ctx.storage.put<InboxItem>(key, { ...item, state: "ready", note, verdict });
+        await this.ctx.storage.put<InboxItem>(key, { ...item, state: "ready", note, verdict, reads });
       }
     }
 

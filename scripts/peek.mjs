@@ -13,6 +13,8 @@
  * 只读，不改任何东西。
  */
 
+import { describeReads } from "../src/reads.ts";
+
 const BASE = (process.env.BASE || "").replace(/\/$/, "");
 const TOKEN = process.env.MEMEX_TOKEN || "";
 const SHOW_WHY = process.argv.includes("--why");
@@ -90,6 +92,10 @@ for (const i of items) {
   if (SHOW_WHY && i.state !== "ready") {
     console.log(`  └ ${clip(i.verdict?.why ?? i.note ?? "", 120)}`);
   }
+  // 它自己读了什么。表格里那一列「材料」只是我们喂了多少，
+  // 而这条判定到底看没看正文，只有这行说得清。
+  const read = describeReads(i.reads);
+  if (read) console.log(`  └ ${read}：${i.reads.map((r) => r.url).slice(0, 3).join(" ｜ ")}`);
 }
 
 // 待判的每一条都问一次 /op：这条究竟是「pi 还在跑」还是「pi 早结算了、
@@ -101,14 +107,18 @@ if (waiting.length) {
   console.log("待判的还卡在哪");
   for (const i of waiting) {
     const age = Math.round((Date.now() - i.at) / 60_000);
-    let line = `  ${pad(i.id, 10)}${pad(`${age} 分钟`, 10)}`;
+    // id 本身以数字结尾（feed-xxxx-yyyyy），和「多少分钟」挨着就会被读成同一个词。
+    // 加个分隔符，别让读的人去猜哪个数字是 id 的一部分。
+    let line = `  ${i.id}  已挂 ${age >= 90 ? `${Math.round(age / 60)} 小时` : `${age} 分钟`}  →  `;
     try {
       const r = await fetch(`${BASE}/op?id=${encodeURIComponent(i.id)}`, {
         headers: { authorization: `Bearer ${TOKEN}` },
         signal: AbortSignal.timeout(30_000),
       });
       const b = await r.json();
-      line += b.live ? `pi 仍持有 · ${b.status}` : `pi 已结算 · ${clip(b.text ?? b.error ?? "无输出", 40)}`;
+      // 回答是多行的，直接拼会把整张表打散。压成一行再截。
+      const out = String(b.text ?? b.error ?? "无输出").replace(/\s+/g, " ");
+      line += b.live ? `pi 仍持有 · ${b.status}` : `pi 已结算 · ${clip(out, 40)}`;
     } catch (error) {
       line += `问不到：${error instanceof Error ? error.message : String(error)}`;
     }

@@ -59,15 +59,17 @@ export function webExtension(): Extension {
           try {
             target = new URL(url);
           } catch {
-            return fail("invalid_url", `不是合法的网址：${url}`);
+            return fail("invalid_url", `不是合法的网址：${url}`, url);
           }
           if (target.protocol !== "http:" && target.protocol !== "https:") {
-            return fail("unsupported_scheme", `只支持 http/https，收到的是 ${target.protocol}`);
+            return fail("unsupported_scheme", `只支持 http/https，收到的是 ${target.protocol}`, url);
           }
+          const at = target.toString();
           if (isPrivateHost(target.hostname)) {
             return fail(
               "blocked_host",
               `拒绝访问内网地址 ${target.hostname}。这个工具只用来读公网页面。`,
+              at,
             );
           }
 
@@ -83,7 +85,7 @@ export function webExtension(): Extension {
 
           let response: Response;
           try {
-            response = await fetch(target.toString(), {
+            response = await fetch(at, {
               // 有些站点会按 UA 拒绝空 UA 的请求，也有的会返回一套残缺的 HTML。
               headers: {
                 "user-agent":
@@ -102,7 +104,7 @@ export function webExtension(): Extension {
             // 取消不是这个站点的错。单独说一句，否则模型会把它当网络失败，换个源再试一遍，
             // 而它其实应该停下来。
             if (err?.name === "AbortError" && context.abortSignal?.aborted) {
-              return fail("aborted", "这次读取被取消了，不是站点的问题，不用换地址重试。");
+              return fail("aborted", "这次读取被取消了，不是站点的问题，不用换地址重试。", at);
             }
 
             const timedOut = err?.name === "TimeoutError";
@@ -112,6 +114,7 @@ export function webExtension(): Extension {
               timedOut
                 ? `请求超时：${TIMEOUT_MS / 1000} 秒内对方没有给出响应。这个站点可能很慢，或者在当前网络下不可达。`
                 : `没拿到响应（${detail}）。这是网络层的失败，不是网址写错了。常见原因是该站点在当前边缘网络上不可达，或它的 TLS 配置过旧。可以换 https 或换一个来源试试。`,
+              at,
             );
           }
 
@@ -119,6 +122,7 @@ export function webExtension(): Extension {
             return fail(
               "http_error",
               `对方返回 ${response.status} ${response.statusText}。页面没有读到。`,
+              at,
             );
           }
 
@@ -127,11 +131,12 @@ export function webExtension(): Extension {
             return fail(
               "not_text",
               `这个地址返回的是 ${contentType || "未知类型"}，不是网页或文本，读不了。`,
+              at,
             );
           }
 
           const raw = await readCapped(response);
-          if (raw.bytes.length === 0) return fail("empty_body", "响应体是空的。");
+          if (raw.bytes.length === 0) return fail("empty_body", "响应体是空的。", at);
 
           const text = isHtml(contentType, raw.head)
             ? htmlToText(decode(raw.bytes, contentType))
@@ -148,7 +153,7 @@ export function webExtension(): Extension {
           const fp = clipped || raw.truncated ? await fingerprint(text) : null;
 
           const lines = [
-            `来源 ${target.toString()}`,
+            `来源 ${at}`,
             clipped
               ? `正文共 ${text.length} 字符，下面只保留前 ${body.length} 字符 —— 剩下的没读到，不要当作全文。`
               : `正文共 ${text.length} 字符。`,
@@ -169,7 +174,7 @@ export function webExtension(): Extension {
           return {
             output: [{ type: "text" as const, text: lines.join("\n") }],
             details: {
-              url: target.toString(),
+              url: at,
               chars: text.length,
               clipped,
               ...(fp ? { sha256: fp } : {}),
@@ -195,11 +200,23 @@ async function fingerprint(text: string): Promise<string> {
     .join("");
 }
 
-function fail(code: string, message: string) {
+/**
+ * 失败也要留可核对的痕迹。
+ *
+ * 一开始只记成功的读取，结果跳过理由里最常见的两句「正文只有 3395 字符」
+ * 和「HN 讨论页返回 419」在记录上完全不对称：前者什么都查不到，后者连
+ * 「试过、没成」都留不下来。而「读不到」恰恰是判 SKIP 的正当理由之一 ——
+ * 不记它，就没法区分「读了，确实不行」和「根本没读」。
+ *
+ * `code` 进 details 而不是进文字：文字是给模型看的（要能读懂），
+ * details 是给复盘的人看的（要能按类统计）。
+ */
+function fail(code: string, message: string, url?: string) {
   return {
     output: [{ type: "text" as const, text: message }],
     isError: true,
     diagnostics: [{ severity: "error" as const, code, message }],
+    ...(url ? { details: { url, error: code } } : {}),
   };
 }
 

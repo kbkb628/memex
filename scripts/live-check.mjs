@@ -255,7 +255,7 @@ async function main() {
   // 一条提交出去的任务，正常情况下最晚在下一次摄取（3 小时一次）就被结算掉 ——
   // settle() 每轮都会把「pi 已经不在跑」的全搬走。所以熬过一个完整周期再加
   // 巡检的 30 分钟容差还挂着的，只有两种可能：结算坏了，或者 pi 把它弄丢了。
-  // 两种都不该靠人去翻收件箱才发现。11-13 那条挂了 9 小时，是我看快照才看见的。
+  // 两种都不该靠人去翻收件箱才发现。
   {
     const box = await http("/inbox?all=1");
     const items = box.body.items ?? [];
@@ -269,6 +269,23 @@ async function main() {
       "没有熬过一个摄取周期的待判",
       stale.length === 0,
       stale.length ? stale.map((i) => `${i.id} ${Math.round((Date.now() - i.at) / 60_000)} 分钟`).join(" ｜ ") : "",
+    );
+
+    // 理由和证据要对得上。
+    //
+    // 跳过理由里最常见的一句是「正文只有 3395 字符」—— 它说读了三千多字。
+    // 在那之前，没有任何地方存着那 3395 字是从哪来的：`given` 只有 63。
+    // 现在 reads 记了。所以这条断言问的是：**你既然说读了，记录里就得有那次读**。
+    // 只在 `reads` 存在（新代码结算的）并且理由里报了数字时才问 —— 旧记录没有
+    // 这个字段，拿它去断言，红的是历史不是代码。
+    const claim = /(\d{3,})\s*字符/;
+    const claims = items.filter((i) => i.reads !== undefined && claim.test(i.verdict?.why ?? ""));
+    const missing = claims.filter((i) => !(i.reads ?? []).some((r) => typeof r.chars === "number"));
+    step("理由报了字数且带 reads 的条目", `${claims.length} 条`);
+    check(
+      "理由说读到了字数，记录里就有那次读取",
+      missing.length === 0,
+      missing.length ? missing.map((i) => i.id).join(" ｜ ") : "",
     );
   }
 
