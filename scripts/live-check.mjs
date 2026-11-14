@@ -301,8 +301,17 @@ async function main() {
       .flatMap((i) => (i.reads ?? []).map((r) => ({ id: i.id, ...r })))
       .filter((r) => /news\.ycombinator\.com\/item/.test(r.url));
     const blocked = hn.filter((r) => r.error === "http_419");
-    const hnOk = hn.filter((r) => typeof r.chars === "number");
-    step("HN 讨论页读取", `共 ${hn.length} 次，读到 ${hnOk.length}，被 419 挡 ${blocked.length}`);
+    // 按代号分开数。"3 次，读到 0"是个会骗人的摘要：那三次可能全是旧代码
+    // 记的 `http_error`，也可能是真在失败 —— 两种要采取的动作完全相反。
+    const tally = new Map();
+    for (const r of hn) {
+      const key = typeof r.chars === "number" ? "读到" : (r.error ?? "没留代号");
+      tally.set(key, (tally.get(key) ?? 0) + 1);
+    }
+    step(
+      "HN 讨论页读取",
+      hn.length ? `${hn.length} 次 · ${[...tally].map(([k, v]) => `${k} ${v}`).join(" · ")}` : "还没有人读过 HN 讨论页",
+    );
     check("HN 讨论页不再被 419 挡住", blocked.length === 0, blocked.map((r) => `${r.id} ${r.url}`).join(" ｜ "));
   }
 
