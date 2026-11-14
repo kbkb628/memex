@@ -22,7 +22,7 @@ export type Read = {
   chars?: number;
   /** 是否被 maxChars 截断。 */
   clipped?: boolean;
-  /** 失败时的原因代号，比如 http_error、timeout。 */
+  /** 失败时的原因代号，比如 http_404、http_419、timeout。 */
   error?: string;
 };
 

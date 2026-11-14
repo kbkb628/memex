@@ -287,6 +287,23 @@ async function main() {
       missing.length === 0,
       missing.length ? missing.map((i) => i.id).join(" ｜ ") : "",
     );
+
+    // HN 讨论页不该再是「读不到」。
+    //
+    // 改动前从边缘抓 news.ycombinator.com/item?id=… 稳定 419 —— 11-13 那批
+    // 11 条跳过里 5 条的理由都写着这句。那五条不是「讨论页没内容」，是墙。
+    // 现在同一个 id 改走 Algolia 的 items 接口，这一类失败应该消失。
+    //
+    // 只认 `http_419`，不认 `http_404`：帖子被删是正常结果，不该让人以为
+    // 改道坏了。老记录记的是 `http_error`（那时状态码还没编进代号），也不匹配 ——
+    // 那是历史，不是这次要验的东西。
+    const hn = items
+      .flatMap((i) => (i.reads ?? []).map((r) => ({ id: i.id, ...r })))
+      .filter((r) => /news\.ycombinator\.com\/item/.test(r.url));
+    const blocked = hn.filter((r) => r.error === "http_419");
+    const hnOk = hn.filter((r) => typeof r.chars === "number");
+    step("HN 讨论页读取", `共 ${hn.length} 次，读到 ${hnOk.length}，被 419 挡 ${blocked.length}`);
+    check("HN 讨论页不再被 419 挡住", blocked.length === 0, blocked.map((r) => `${r.id} ${r.url}`).join(" ｜ "));
   }
 
   if (typeof next === "number") {

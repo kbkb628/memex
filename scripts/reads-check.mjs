@@ -70,11 +70,11 @@ check("重复提交取最近那次", latest.length === 1 && latest[0].url === "h
 
 // ── 4. 失败也是证据 ────────────────────────────────────────
 const failed = readsFor(
-  [user(a), fetchErr("https://a.example/discuss", "http_error"), fetchOk("https://a.example/doc", 3395)],
+  [user(a), fetchErr("https://a.example/discuss", "http_419"), fetchOk("https://a.example/doc", 3395)],
   a,
 );
 check("失败的读取照样留痕", failed.length === 2);
-check("失败那页带原因不带字数", failed[0]?.error === "http_error" && failed[0].chars === undefined);
+check("失败那页带原因不带字数", failed[0]?.error === "http_419" && failed[0].chars === undefined);
 
 // ── 5. 不相关的东西不能混进来 ──────────────────────────────
 const noisy = readsFor([user(a), otherTool("fetch_rss"), assistant("ok")], a);

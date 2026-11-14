@@ -1,5 +1,6 @@
 import { defineTool, type Extension } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
+import { flattenThread, hnApiUrl, hnItemId, type HnNode } from "./hn";
 
 /**
  * 第一个工具，只有一个：读一个网页。
@@ -73,6 +74,12 @@ export function webExtension(): Extension {
             );
           }
 
+          // HN 讨论页从边缘直连稳定返回 419 —— 11-13 那批跳过里 5 条的理由都写着这句。
+          // 同一个 id 在 Algolia 的 items 接口上有完整评论树，纯 JSON。所以换地址，
+          // 不换工具：模型说的是「读这条讨论」，它不需要知道墙在哪一层。
+          const hnId = hnItemId(target);
+          const endpoint = hnId === undefined ? at : hnApiUrl(hnId);
+
           // 两个中止源要合起来：一个是这个工具自己的超时，一个是 pi 给的取消信号
           // （任务被 abort、对象要驱逐、调用方撤回了这次等待）。
           //
@@ -85,7 +92,7 @@ export function webExtension(): Extension {
 
           let response: Response;
           try {
-            response = await fetch(at, {
+            response = await fetch(endpoint, {
               // 有些站点会按 UA 拒绝空 UA 的请求，也有的会返回一套残缺的 HTML。
               headers: {
                 "user-agent":
@@ -119,9 +126,16 @@ export function webExtension(): Extension {
           }
 
           if (!response.ok) {
+            // 状态码编进代号，不只写 http_error。
+            //
+            // 404 是「这个帖子没了」，419 是「这面墙」。两者都记成 http_error，
+            // 事后就没法断言「419 不再出现」——而 419 正是这次改道要消灭的东西。
+            // 一个笼统的代号会让「修好了没有」永远只能靠人说。
             return fail(
-              "http_error",
-              `对方返回 ${response.status} ${response.statusText}。页面没有读到。`,
+              `http_${response.status}`,
+              hnId === undefined
+                ? `对方返回 ${response.status} ${response.statusText}。页面没有读到。`
+                : `HN 的接口返回 ${response.status}。这条讨论读不到 —— 可能是 id 不存在，或者帖子已被删除。`,
               at,
             );
           }
@@ -138,9 +152,28 @@ export function webExtension(): Extension {
           const raw = await readCapped(response);
           if (raw.bytes.length === 0) return fail("empty_body", "响应体是空的。", at);
 
-          const text = isHtml(contentType, raw.head)
-            ? htmlToText(decode(raw.bytes, contentType))
-            : decode(raw.bytes, contentType).trim();
+          let text: string;
+          /** 非空时说明「这一份内容是怎么读到的」，写在来源下面一行。 */
+          let how = "";
+
+          if (hnId !== undefined) {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(decode(raw.bytes, contentType));
+            } catch {
+              return fail("bad_json", "HN 的接口返回的不是合法 JSON，这条讨论读不了。", at);
+            }
+            if (!parsed || typeof parsed !== "object") {
+              return fail("bad_json", "HN 的接口返回了空结果，这条讨论可能不存在。", at);
+            }
+            const thread = flattenThread(parsed as HnNode);
+            text = thread.text;
+            how = `这一页是 HN 讨论，直连网页会被 419 挡住，所以读的是官方 JSON 接口 ${endpoint}（${thread.shown}/${thread.total} 条评论）。`;
+          } else {
+            text = isHtml(contentType, raw.head)
+              ? htmlToText(decode(raw.bytes, contentType))
+              : decode(raw.bytes, contentType).trim();
+          }
 
           const body = text.slice(0, maxChars);
           const clipped = text.length > body.length;
@@ -154,6 +187,9 @@ export function webExtension(): Extension {
 
           const lines = [
             `来源 ${at}`,
+            // 换过地址就必须说出来。不说，模型会以为自己读的是那个网页，
+            // 然后拿「页面上写着」去支撑一个它其实只在评论树里看到的结论。
+            ...(how ? [how] : []),
             clipped
               ? `正文共 ${text.length} 字符，下面只保留前 ${body.length} 字符 —— 剩下的没读到，不要当作全文。`
               : `正文共 ${text.length} 字符。`,
