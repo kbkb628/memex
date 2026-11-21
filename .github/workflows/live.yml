@@ -40,6 +40,14 @@ on:
         description: 只看一眼收件箱的判定分布（不做校验、不花模型）
         type: boolean
         default: false
+      pause:
+        description: 停掉定时抓取（数据保留，之后可以 resume）
+        type: boolean
+        default: false
+      resume:
+        description: 恢复定时抓取（从这一刻重新算，不补跑错过的）
+        type: boolean
+        default: false
 
 jobs:
   live:
@@ -93,8 +101,22 @@ jobs:
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
         run: node scripts/peek.mjs --why
 
+      - name: 停
+        if: ${{ inputs.pause }}
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+        run: node scripts/pause.mjs pause
+
+      - name: 起
+        if: ${{ inputs.resume }}
+        env:
+          BASE: ${{ inputs.base }}
+          MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
+        run: node scripts/pause.mjs resume
+
       - name: 从公网打线上实例
-        if: ${{ !inputs.peek }}
+        if: ${{ !inputs.peek && !inputs.pause && !inputs.resume }}
         env:
           BASE: ${{ inputs.base }}
           MEMEX_TOKEN: ${{ secrets.MEMEX_TOKEN }}
