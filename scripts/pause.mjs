@@ -52,7 +52,10 @@ console.log("--- 它自己怎么说 ---");
 console.log(`paused: ${now.body?.paused}`);
 for (const r of routines) {
   const next = r.next ? new Date(r.next).toISOString() : null;
-  console.log(`  ${r.id.padEnd(8)} every ${Math.round((r.everyMs ?? 0) / 60000)} 分钟   next: ${next}`);
+  // 上一次跑在什么时候也要打：暂停之后如果它变了，说明队列里还有东西在跑 ——
+  // next 为空只是「没排下一次」，管不住已经到期的那一个。
+  const last = r.last?.at ? new Date(r.last.at).toISOString() : null;
+  console.log(`  ${r.id.padEnd(8)} every ${Math.round((r.everyMs ?? 0) / 60000)} 分钟   last: ${last}   next: ${next}`);
 }
 
 // 暂停之后「还有下一次」就是没停干净；恢复之后「没有下一次」就是没起来。
