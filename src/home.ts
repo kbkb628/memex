@@ -256,6 +256,16 @@ const FIRST_PATROL_MS = 60 * 1000;
 /** 一个任务挂这么久还没结果，就算可疑。pi 自己的重试比这快得多。 */
 const STUCK_MS = 30 * 60 * 1000;
 
+/**
+ * 暂停开关。存进 storage 而不是环境变量，因为它是**运行状态**不是配置：
+ * 按一下就该立刻生效，而且要在对象被驱逐、重新部署之后仍然成立 ——
+ * 环境变量能做到前者，做不到后者（改一次就得重新部署一次）。
+ *
+ * 两处都要拦：push 之前（别再排新的）和 onJob 里（已经排上的也别执行）。
+ * 只拦前者是不够的 —— 按下暂停的那一刻，队列里本来就有一个几小时后到期的 job。
+ */
+const PAUSED_KEY = "paused";
+
 type PatrolReport = {
   at: number;
   scanned: number;
@@ -349,6 +359,8 @@ export class Home extends DurableObject<Env> {
         return await this.status(url.searchParams.get("spend") === "fresh");
       if (path === "/patrol" && request.method === "GET") return await this.patrolReport();
       if (path === "/routines" && request.method === "GET") return await this.routines();
+      if (path === "/pause" && request.method === "POST") return await this.pause();
+      if (path === "/resume" && request.method === "POST") return await this.resume();
       if (path === "/feeds" && request.method === "GET") return await this.listFeeds();
       if (path === "/feeds" && request.method === "POST") return await this.addFeed(request);
       if (path === "/feeds/update" && request.method === "POST") return await this.updateFeed(request);
@@ -378,6 +390,20 @@ export class Home extends DurableObject<Env> {
    * 巡检只读 pending，输入源只拉源 + 提交任务。
    */
   async onJob(context: LifecycleJobContext): Promise<LifecycleJobOutcome | void> {
+    // 暂停期间到期的 job 一律不执行、也不排下一次。
+    //
+    // cancel() 应该已经把队列清空了，这只是第二道闸：万一 cancel 没赶在 alarm
+    // 触发之前落地，或者暂停是在某一轮跑的中途打开的，这里就是最后一条拦线。
+    // 返回空 = 这个 job 到此结束，恢复时由 resume() 重新 push。
+    //
+    // 只拦自己的两个 fn，不拦 harness 的唤醒 job —— 那个 job 是「把被驱逐的
+    // 任务捞回来」用的，拦住它等于让已经在跑的任务半路死掉，和暂停的意图相反。
+    const mine = context.job.fn === PATROL || context.job.fn === INGEST;
+    if (mine && (await this.ctx.storage.get<boolean>(PAUSED_KEY))) {
+      await this.ctx.storage.put("paused:skipped", { at: Date.now(), fn: context.job.fn });
+      return;
+    }
+
     if (context.job.fn === PATROL) {
       const report = await this.patrol();
       await this.ctx.storage.put("patrol:last", report);
@@ -400,6 +426,10 @@ export class Home extends DurableObject<Env> {
   private async ensureJobs(): Promise<void> {
     if (this.jobsReady) return;
     this.jobsReady = true;
+
+    // 暂停时什么都不排。这一步必须在 push 之前 —— 否则每次打开页面（任何请求
+    // 都会走到 ensureJobs）都会把刚 cancel 掉的 job 又建回来，暂停形同虚设。
+    if (await this.ctx.storage.get<boolean>(PAUSED_KEY)) return;
 
     if (!this.lifecycle.jobs.get(PATROL)) {
       await this.lifecycle.jobs.push({
@@ -558,8 +588,12 @@ export class Home extends DurableObject<Env> {
     const ingest = await this.ctx.storage.get<IngestReport>("ingest:last");
     const patrolJob = this.lifecycle.jobs.get(PATROL);
     const ingestJob = this.lifecycle.jobs.get(INGEST);
+    const paused = (await this.ctx.storage.get<boolean>(PAUSED_KEY)) === true;
 
     return Response.json({
+      // 暂停时必须能被看见。这栏的标题就叫「它自己会醒」—— 停掉之后如果还
+      // 显示「3 条定时 · 下一次 2 小时后」，那这一栏就在说反话。
+      paused,
       routines: [
         {
           id: "ingest",
@@ -576,6 +610,67 @@ export class Home extends DurableObject<Env> {
           next: patrolJob ? patrolJob.time : null,
         },
       ],
+    });
+  }
+
+  // ───────────────────────────── 暂停 / 恢复 ─────────────────────────────
+
+  /**
+   * 按下暂停：停掉两条定时动作，并且不再排新的。
+   *
+   * 停的是「它自己会醒」这一层，**不是数据**：收件箱、源、目标、会话都留着，
+   * 随时能恢复。也不 abort 已经在 pi 里跑的任务 —— 它们本来就快跑完了，
+   * 半路掐掉只会留下一条「没留下输出」的失败记录，比让它跑完更脏。
+   * 真正要停的是「之后还会一直有新东西进来」这件事。
+   */
+  private async pause(): Promise<Response> {
+    await this.ctx.storage.put(PAUSED_KEY, true);
+
+    const cancelled: string[] = [];
+    for (const id of [PATROL, INGEST]) {
+      if (await this.lifecycle.jobs.cancel(id)) cancelled.push(id);
+    }
+
+    // 只看我们自己的两个。harness 的 wake job 是它自己按需排的，没活时会自己结束，
+    // 不该由这里代管 —— 代管了，正在跑的任务反而可能没人唤醒。
+    const left = [PATROL, INGEST].filter((id) => this.lifecycle.jobs.get(id));
+    // 暂停那一刻还有多少条在 pi 里跑。回这个数是为了让「停了」有个确定的含义：
+    // 停的是「不再有新任务进来」，不是「立刻一条都不剩」。
+    const inbox = await this.ctx.storage.list<InboxItem>({ prefix: "inbox:" });
+    const pending = [...inbox.values()].filter((i) => i.state === "pending").length;
+
+    return Response.json({
+      paused: true,
+      cancelled,
+      remaining: left,
+      pending,
+      note: left.length
+        ? "开关已打开，但还有 job 在队列里 —— 它们到期时会因为开关而直接结束。"
+        : "定时动作已取消，之后不会再醒。数据和收件箱都还在，随时可以恢复。",
+    });
+  }
+
+  /**
+   * 恢复：从按下暂停的那一刻重新开始算，不补跑错过的那些。
+   *
+   * 补跑没有意义 —— 停了一周之后把这一周该抓的全抓一遍，等于制造一次洪水，
+   * 而那些条目在你恢复的这一刻已经不算「新」了。恢复就是恢复「往后看」。
+   */
+  private async resume(): Promise<Response> {
+    await this.ctx.storage.delete(PAUSED_KEY);
+
+    // jobsReady 是实例级缓存，暂停期间已经被置真。不清掉它，同一次请求里
+    // 后面的 ensureJobs 会直接返回，看起来「恢复了但没排上」。
+    this.jobsReady = false;
+    await this.ensureJobs();
+
+    return Response.json({
+      paused: false,
+      jobs: [PATROL, INGEST]
+        .map((id) => this.lifecycle.jobs.get(id))
+        .filter(Boolean)
+        .map((j) => ({ id: j!.id, at: j!.time })),
+      note: "已恢复。第一轮会在一两分钟内醒来。",
     });
   }
 

@@ -435,6 +435,14 @@
       return;
     }
     const list = body.routines || [];
+    if (body.paused) {
+      // 暂停之后这一栏不能再说「下一次 X 小时后」—— 它不会再醒了。
+      // 只写「已暂停」也不够，得说清停的是哪一层：数据还在，只是不再自己动。
+      $("#routines-meta").textContent = "已暂停 · 不再抓取，数据都在";
+      box.innerHTML = "";
+      for (const r of list) box.appendChild(routineCard(r));
+      return;
+    }
     if (!list.length) {
       $("#routines-meta").textContent = "没有定时动作";
       box.innerHTML = "";

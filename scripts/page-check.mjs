@@ -73,6 +73,13 @@ check("材料字数和自读字数挨在一起", readsMerged, readsMerged ? "" :
 const roundsShown = /g\.rounds\.length > 1/.test(script) && /每一轮（/.test(script);
 check("页面能翻到每一轮", roundsShown, roundsShown ? "" : "轮次留了却没地方看");
 
+// 7. 暂停之后，「它自己会醒」这一栏不能说反话。
+//
+//    默认状态下这一栏写的是「N 条定时 · 下一次 2 小时后」。停了之后如果照旧，
+//    读的人会以为它还在跑 —— 而这一栏存在的唯一理由就是回答「我没看的时候它在不在动」。
+const pausedShown = /body\.paused/.test(script);
+check("页面承认已经暂停", pausedShown, pausedShown ? "" : "停掉之后这一栏还在说「下一次几小时后」");
+
 const bad = checks.filter((c) => !c.pass);
 console.log(`\n${checks.length - bad.length}/${checks.length} 通过`);
 if (bad.length) {

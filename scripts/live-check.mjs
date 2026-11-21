@@ -171,7 +171,18 @@ async function main() {
     typeof rIngest?.everyMs === "number" && typeof rPatrol?.everyMs === "number",
     `ingest=${rIngest?.everyMs} patrol=${rPatrol?.everyMs}`,
   );
-  check("每条都带下一次时间", typeof rIngest?.next === "number" && typeof rPatrol?.next === "number");
+  // 暂停是一个正当状态，不是故障 —— 所以这条不能写死成「必须有下一次」，
+  // 否则按下暂停之后，红的是这个开关本身，而不是坏掉的东西。
+  // 要锁的是一个不变式：开关和队列必须说的是同一件事。
+  const routinesPaused = routines.body.paused === true;
+  step("定时动作", routinesPaused ? "已暂停（手动停的）" : "在转");
+  check(
+    routinesPaused ? "暂停时两条都没有下一次" : "每条都带下一次时间",
+    routinesPaused
+      ? (rs ?? []).every((r) => r.next === null || r.next === undefined)
+      : typeof rIngest?.next === "number" && typeof rPatrol?.next === "number",
+    routinesPaused ? `paused=true，next=${(rs ?? []).map((r) => r.next).join(",")}` : "",
+  );
 
   // 上一次抓取到底抓到了什么。
   //
