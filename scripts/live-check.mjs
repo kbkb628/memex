@@ -142,7 +142,14 @@ async function main() {
   // 所以这里两条都写：有 last 就断言它，没有就看下一次够不够近、够近就等。
   const patrol = await http("/patrol");
   const next = patrol.body.next;
-  check("/patrol 有下一次的时间", patrol.status === 200 && typeof next === "number", `next=${next}`);
+  // 暂停之后 next 本来就该是 null。写死成「必须是数字」的话，按下暂停的那一刻
+  // 这条就会红 —— 而红的是这个开关，不是坏掉的东西。要锁的是两者一致。
+  const patrolPaused = patrol.body.paused === true;
+  check(
+    patrolPaused ? "/patrol 暂停时不给下一次" : "/patrol 有下一次的时间",
+    patrol.status === 200 && (patrolPaused ? next === null : typeof next === "number"),
+    `paused=${patrolPaused} next=${next}`,
+  );
 
   const last = patrol.body.last;
   if (last && typeof last.at === "number") {

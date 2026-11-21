@@ -568,6 +568,9 @@ export class Home extends DurableObject<Env> {
     const last = await this.ctx.storage.get<PatrolReport>("patrol:last");
     const job = this.lifecycle.jobs.get(PATROL);
     return Response.json({
+      // 暂停时说清楚。只给 next: null 是不够的 —— 读的人分不清「停了」
+      // 和「排期丢了」，而这两件事的处理方式完全不同。
+      paused: (await this.ctx.storage.get<boolean>(PAUSED_KEY)) === true,
       last: last ?? null,
       next: job ? job.time : null,
     });
